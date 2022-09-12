@@ -1,7 +1,7 @@
 #!/bin/bash
 #
-#SBATCH --job-name=convnet
-#SBATCH --output=convnet.txt
+#SBATCH --job-name=unet
+#SBATCH --output=unet.txt
 #
 #SBATCH --cpus-per-task=26
 #SBATCH --gres=gpu:1
@@ -18,7 +18,7 @@ CONFIG=$(cat <<- EOM
     "scaler_file": "/home/ab6361/hydrogen_workspace/model_staging/configurable/conus1.scalers",
     "resume_from_checkpoint": true,
     "log_dir": "/home/ab6361/hydrogen_workspace/artifacts/configurable_logs",
-    "run_name": "convnet_train_$VARIANT",
+    "run_name": "unet_train_$VARIANT",
     "forcing_vars": ["APCP", "melt", "et"],
     "surface_parameters": ["topographic_index"],
     "subsurface_parameters": ["porosity", "permeability", "van_genuchten_alpha", "van_genuchten_n"],
@@ -36,16 +36,15 @@ CONFIG=$(cat <<- EOM
     "model_def": {
         "type": "MultiStepMultiLayerModel",
         "model_config": {
-            "layer_model": "BasicConvNet",
+            "layer_model": "UNet",
             "probability_of_true_inputs": 0.05,
             "layer_model_kwargs": {
-                "hidden_dim": 512,
-                "depth": 1
+                "base_channels": 8
             }
         }
     }
 }
 EOM
 )
-echo $CONFIG > convnet_train.json
-run_emulator --mode train --domain subsurface --config convnet_train.json
+echo $CONFIG > unet_config.json
+run_emulator --mode train --domain subsurface --config unet_config.json
