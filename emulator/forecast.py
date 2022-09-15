@@ -279,6 +279,9 @@ def run_forecast(
         The subsurface forecast config. See the `run_subsurface_forecast`
         documentation for the specs of what goes in here.
     """
-    ds = run_surface_forecast(ds, land_surface_config)
-    ds = run_subsurface_forecast(ds, subsurface_config)
-    return ds
+    surf_ds = run_surface_forecast(ds, land_surface_config)
+    ds = ds.isel(time=slice(-land_surface_config['forecast_length'], None))
+    ds['et'] = surf_ds['et']
+    ds['swe'] = surf_ds['swe']
+    subsurf_ds = run_subsurface_forecast(ds, subsurface_config)
+    return xr.merge([surf_ds, subsurf_ds])
