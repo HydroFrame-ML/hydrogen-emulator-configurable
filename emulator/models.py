@@ -119,9 +119,11 @@ class MultiLSTMModel(pl.LightningModule):
         layer_model_kwargs={},
     ):
         super().__init__()
-        print(layer_model)
-        self.in_vars = [forcing_vars + surface_parameters
-                        + subsurface_parameters + state_vars]
+        if 'vegtype' in surface_parameters:
+            extra_vars = [f'vegtype_{i}' for i in range(1, 18)]
+            surface_parameters = surface_parameters + extra_vars
+        self.in_vars = (forcing_vars + surface_parameters
+                        + subsurface_parameters + state_vars)
         self.out_vars = out_vars
         self.sequence_length = sequence_length
         n_input_features = len(self.in_vars)

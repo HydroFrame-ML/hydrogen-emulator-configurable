@@ -12,6 +12,7 @@ from .models import (
 )
 from glob import glob
 from .dataset import RecurrentDataset
+from .model_builder import ModelBuilder
 from hydroml import scalers
 from hydroml.process_heads import (
     SaturationHead,
@@ -53,35 +54,43 @@ def run_surface_forecast(ds, config):
     The xarray dataset with the added `out_vars` with `forecast_length`
     elements in the time dimension
     """
-    # Set up some configuration
+
+    # Pull some config
     conus_scalers = scalers.load_scalers(config['scaler_file'])
     patch_sizes = {'x': len(ds['x']), 'y': len(ds['y'])}
-    input_dim = len(config['parameters']
-                    + config['in_vars']
-                    + config['state_vars'])
-    if 'vegtype' in config['parameters']:
-        input_dim += 17
+    in_vars = config['forcing_vars']
+    surface_parameters = config['surface_parameters']
+    subsurface_parameters = config['subsurface_parameters']
+    parameters = surface_parameters+subsurface_parameters
+    state_vars = config['state_vars']
+    out_vars = config['out_vars']
+    seq_len = config['sequence_length']
+
     # Create the dataset
     dataset = RecurrentDataset(
-        lambda: ds,
-        static_inputs=config['parameters'],
-        forcing_inputs=config['in_vars'],
-        state_inputs=config['state_vars'],
-        dynamic_outputs=config['out_vars'],
+        lambda: ds ,
+        static_inputs=parameters,
+        forcing_inputs=in_vars,
+        state_inputs=state_vars,
+        dynamic_outputs=out_vars,
         scalers=conus_scalers,
-        sequence_length=config['sequence_length'],
+        sequence_length=seq_len,
         patch_sizes=patch_sizes,
     )
     dataset.per_worker_init()
 
     # Create the model
-    # TODO: FIXME: Replace with model builder code
-    model = LSTMModel(
-        n_input_features=input_dim,
-        hidden_dim=config['hidden_dim'],
-        n_output_features=len(config['out_vars']),
-        nlayers=config['nlayers'],
-        sequence_length=config['forecast_length']
+    model_config = config.get('model_def', {}).get('model_config', {})
+    model_config['forcing_vars'] = config['forcing_vars']
+    model_config['surface_parameters'] = config['surface_parameters']
+    model_config['subsurface_parameters'] = config['subsurface_parameters']
+    model_config['state_vars'] = config['state_vars']
+    model_config['out_vars'] = config['out_vars']
+    model_config['sequence_length'] = config['forecast_length']
+
+    model = ModelBuilder.build_emulator(
+        emulator_type=config['model_def']['type'],
+        model_config=config['model_def']['model_config']
     )
     weights = torch.load(config['model_state_file'], map_location=DEVICE)
     model.load_state_dict(weights)
@@ -144,8 +153,10 @@ def run_subsurface_forecast(ds, config):
     # Pull some config
     conus_scalers = scalers.load_scalers(config['scaler_file'])
     patch_sizes = {'x': len(ds['x']), 'y': len(ds['y'])}
-    in_vars = config['in_vars']
-    parameters = config['parameters']
+    in_vars = config['forcing_vars']
+    surface_parameters = config['surface_parameters']
+    subsurface_parameters = config['subsurface_parameters']
+    parameters = surface_parameters+subsurface_parameters
     state_vars = config['state_vars']
     out_vars = config['out_vars']
     seq_len = config['forecast_length']
@@ -164,17 +175,17 @@ def run_subsurface_forecast(ds, config):
     dataset.per_worker_init()
 
     # Create model and process functions
-    # TODO: FIXME: Replace with model builder code
-    model = MultiStepMultiLayerModel(
-        grid_size=[patch_sizes['y'], patch_sizes['x']],
-        forcing_vars=in_vars,
-        surface_parameters=[],
-        subsurface_parameters=parameters,
-        state_vars=state_vars,
-        activation=nn.Mish,
-        layer_model=UNet,
-        number_steps=seq_len,
-        probability_of_true_inputs=0.0
+    model_config = config.get('model_def', {}).get('model_config', {})
+    model_config['forcing_vars'] = config['forcing_vars']
+    model_config['surface_parameters'] = config['surface_parameters']
+    model_config['subsurface_parameters'] = config['subsurface_parameters']
+    model_config['state_vars'] = config['state_vars']
+    model_config['out_vars'] = config['out_vars']
+    model_config['sequence_length'] = config['forecast_length']
+
+    model = ModelBuilder.build_emulator(
+        emulator_type=config['model_def']['type'],
+        model_config=config['model_def']['model_config']
     )
     weights = torch.load(config['model_state_file'], map_location=DEVICE)
     model.load_state_dict(weights)
@@ -188,7 +199,7 @@ def run_subsurface_forecast(ds, config):
     pred_ds = xr.Dataset()
     dswe = ds['swe'].diff('time')
     melt = -1 * dswe.where(dswe < 0, other=0.0)
-    melt = xr.concat([xr.zeros_like(melt.isel(time=[0])), melt], dim='time')
+    melt = xr.concat([xr.zeros_like(ds['swe'].isel(time=[0])), melt], dim='time')
     melt.name = 'melt'
     ds['melt'] = melt
     if 'time' not in ds['pressure'].dims:
