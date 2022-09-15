@@ -1,0 +1,9 @@
+numpy
+pandas
+torch
+pytorch_lightning
+xarray
+dask[diagnostics]
+bottleneck
+mlflow
+git+https://github.com/HydroFrame-ML/hydrogen-hydroml

@@ -206,7 +206,7 @@ class RecurrentDataset(IterableDataset):
         Explicitly grab a sample from a given selector that
         goes into the `ds.sel` method from xarray.
         """
-        sample = self.ds.sel(selector).load()
+        sample = self.ds.isel(selector).load()
         return self._get_sample(sample)
 
     def __iter__(self):

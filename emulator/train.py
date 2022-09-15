@@ -18,12 +18,12 @@ from torch.utils.data import DataLoader
 
 def train_model(
     config,
-    callbacks=None
 ):
     resume_from_checkpoint = config['resume_from_checkpoint']
     log_dir = config['log_dir']
     run_name = config['run_name']
     logging_frequency = config['logging_frequency']
+    callbacks = config['callbacks']
 
     patch_size = config['patch_size']
     patch_stride = config['patch_stride']
@@ -100,9 +100,7 @@ def train_model(
     model_config['state_vars'] = config['state_vars']
     model_config['out_vars'] = config['out_vars']
     model_config['sequence_length'] = config['sequence_length']
-    from pprint import pprint
 
-    # TODO: FIXME: Replace with model builder code
     model = ModelBuilder.build_emulator(
         emulator_type=config['model_def']['type'],
         model_config=config['model_def']['model_config']

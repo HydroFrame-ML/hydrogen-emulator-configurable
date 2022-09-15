@@ -5,14 +5,14 @@
 #
 #SBATCH --cpus-per-task=26
 #SBATCH --gres=gpu:1
-#SBATCH --time=06:00:00
+#SBATCH --time=04:00:00
 #SBATCH --mem=128GB
 
 source /home/ab6361/.bashrc
 source activate all
 
 TODAY=`date +"%Y-%m-%d"`
-VARIANT="configurable_7day"
+VARIANT="configurable_7day_1M"
 CONFIG=$(cat <<- EOM
 {
     "scaler_file": "/home/ab6361/hydrogen_workspace/model_staging/configurable/conus1.scalers",
