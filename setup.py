@@ -5,7 +5,7 @@ setup(
     name='emulator-configurable',
     version='0.0.0',
     python_requires='>3.6',
-    packages=['emulator'],
+    packages=['emulator_configurable'],
     install_requires=[
         'torch',
         'pytorch-lightning',
@@ -17,6 +17,6 @@ setup(
         'mlflow',
     ],
     entry_points={'console_scripts': [
-        'run_emulator= emulator.cli:main',
+        'run_emulator= emulator_configurable.cli:main',
     ]},
 )

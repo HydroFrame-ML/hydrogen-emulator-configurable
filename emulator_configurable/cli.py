@@ -1,4 +1,4 @@
-import emulator
+import emulator_configurable as emulator
 import argparse
 import json
 import os
