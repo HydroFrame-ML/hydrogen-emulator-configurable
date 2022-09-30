@@ -1022,7 +1022,7 @@ class MultiStepMultiLayerModel(pl.LightningModule):
         layer_model=UNet,
         layer_model_kwargs={},
         probability_of_true_inputs=0.0,
-        inject_noise=False,
+        inject_noise=True,
         rng=np.random,
     ):
         super().__init__()
@@ -1052,7 +1052,7 @@ class MultiStepMultiLayerModel(pl.LightningModule):
         # y_hat_sub stores each timestep prediction
         y_hat_sub = []
         y_hat_sub.append(self.model(xx))
-        noise_scale = 1e-7
+        noise_scale = 1e-6
         # Iterate through time
         for i in range(1, self.sequence_length):
             # Get the ith timestep
@@ -1081,7 +1081,7 @@ class MultiStepMultiLayerModel(pl.LightningModule):
 
     def validation_step(self, val_batch, val_batch_idx):
         x, y = val_batch
-        y_hat = self(x)
+        y_hat = self(x).squeeze()
         loss = self.loss_fun(y_hat, y)
         self.log('val_loss', loss)
         return loss

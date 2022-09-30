@@ -15,7 +15,7 @@ TODAY=`date +"%Y-%m-%d"`
 VARIANT="configurable_7day_1M"
 CONFIG=$(cat <<- EOM
 {
-    "scaler_file": "/home/ab6361/hydrogen_workspace/model_staging/configurable/conus1.scalers",
+    "scaler_file": "/home/ab6361/hydrogen_workspace/model_staging/unet_configurable/conus1.scalers",
     "resume_from_checkpoint": true,
     "log_dir": "/home/ab6361/hydrogen_workspace/artifacts/configurable_logs",
     "run_name": "unet_train_$VARIANT",
@@ -32,7 +32,7 @@ CONFIG=$(cat <<- EOM
     "max_epochs": 1,
     "logging_frequency": 100,
     "train_samples_per_epoch": 500000,
-    "valid_samples_per_epoch":  50000,
+    "valid_samples_per_epoch":  500,
     "model_def": {
         "type": "MultiStepMultiLayerModel",
         "model_config": {

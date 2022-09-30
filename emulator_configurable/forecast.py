@@ -204,7 +204,7 @@ def run_subsurface_forecast(ds, config):
     ds['melt'] = melt
     if 'time' not in ds['pressure'].dims:
         ds['pressure'] = ds['pressure'].expand_dims({'time': seq_len})
-    ds['topographic_index'] = xr.broadcast(ds['z'], ds['topographic_index'])[1]
+    #ds['topographic_index'] = xr.broadcast(ds['z'], ds['topographic_index'])[1]
     alpha = torch.tensor(ds['van_genuchten_alpha'].values)
     n = torch.tensor(ds['van_genuchten_n'].values)
     slope_x = torch.tensor(ds['slope_x'].values)

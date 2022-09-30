@@ -18,11 +18,18 @@ def train_surface(
 ):
     mlflow.set_tracking_uri(f'file:{config["log_dir"]}')
     base_data_gen = emulator.utils.zarr_data_gen
+    train_files = [
+        '/home/SHARED/data/ab6361/conus1_2003_preprocessed.zarr',
+        '/home/SHARED/data/ab6361/conus1_2004_preprocessed.zarr',
+    ]
     config['train_data_gen_function'] = partial(
-        base_data_gen,  selectors={'time': slice(0, -300)}
+        base_data_gen, files=train_files
     )
+    valid_files = [
+        '/home/SHARED/data/bah5/conus1_2005_preprocessed.zarr',
+    ]
     config['valid_data_gen_function'] = partial(
-        base_data_gen,  selectors={'time': slice(-300, None)}
+        base_data_gen, files=valid_files
     )
     lr_monitor = LearningRateMonitor(
             logging_interval='step',
@@ -46,11 +53,18 @@ def train_subsurface(
 ):
     mlflow.set_tracking_uri(f'file:{config["log_dir"]}')
     base_data_gen = emulator.utils.zarr_data_gen
+    train_files = [
+        '/home/SHARED/data/ab6361/conus1_2003_preprocessed.zarr',
+        '/home/SHARED/data/ab6361/conus1_2004_preprocessed.zarr',
+    ]
     config['train_data_gen_function'] = partial(
-        base_data_gen, selectors={'time': slice(0, -300)}
+        base_data_gen, files=train_files
     )
+    valid_files = [
+        '/home/SHARED/data/bah5/conus1_2005_preprocessed.zarr',
+    ]
     config['valid_data_gen_function'] = partial(
-        base_data_gen, selectors={'time': slice(-300, None)}
+        base_data_gen, files=valid_files
     )
     lr_monitor = LearningRateMonitor(
             logging_interval='step',

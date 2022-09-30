@@ -255,6 +255,7 @@ class RecurrentDataset(IterableDataset):
 
         for v in self.static_inputs:
             if v in self.scalers:
+                #print(v)
                 scaled_x = np.array(self.scalers[v].transform(sel_ds[v]))
             else:
                 scaled_x = sel_ds[v].values
