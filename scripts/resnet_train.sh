@@ -32,7 +32,7 @@ CONFIG=$(cat <<- EOM
     "max_epochs": 1,
     "logging_frequency": 100,
     "train_samples_per_epoch": 500000,
-    "valid_samples_per_epoch":  50000,
+    "valid_samples_per_epoch":  500,
     "model_def": {
         "type": "MultiStepMultiLayerModel",
         "model_config": {

@@ -154,6 +154,7 @@ def train_model(
         num_sanity_val_steps=0,
         log_every_n_steps=logging_frequency,
         logger=logger,
+        val_check_interval=500,
     )
     trainer.fit(
         model=model,

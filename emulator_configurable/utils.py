@@ -39,10 +39,9 @@ def conus1_data_gen(selectors={}):
     return ds.astype(np.float32).squeeze()
 
 
-def zarr_data_gen(selectors={}):
-    ds = xr.open_dataset(
-        '/home/SHARED/data/ab6361/conus1_2006_preprocessed.zarr',
-        engine='zarr', consolidated=False
+def zarr_data_gen(files, selectors={}):
+    ds = xr.open_mfdataset(
+        files, engine='zarr', consolidated=False, data_vars='minimal'
     )
     ds = ds.assign_coords({
         'time': np.arange(len(ds['time'])),
