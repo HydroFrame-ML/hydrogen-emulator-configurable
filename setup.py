@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name='emulator-configurable',
-    version='0.0.0',
+    version='0.0.1',
     python_requires='>3.6',
     packages=['emulator_configurable'],
     install_requires=[
