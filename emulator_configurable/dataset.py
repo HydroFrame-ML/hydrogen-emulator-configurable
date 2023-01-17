@@ -193,11 +193,11 @@ class RecurrentDataset(IterableDataset):
         """
         if not self.rng:
             return ds
-        if self.rng.random() > 0.5:
+        if self.rng.random() > 0.25:
             ds = ds.transpose(..., 'x', 'y')
-        if self.rng.random() > 0.5:
+        if self.rng.random() > 0.25:
             ds = ds.reindex(x=ds['x'][::-1])
-        if self.rng.random() > 0.5:
+        if self.rng.random() > 0.25:
             ds = ds.reindex(y=ds['y'][::-1])
         return ds
 
@@ -214,8 +214,8 @@ class RecurrentDataset(IterableDataset):
             patch = self._sample_a_patch(i)
             time_slice = self._sample_time_slice(i)
             selector = {**patch, **time_slice}
-            sample = self.ds.sel(selector)
-            #sample = self.augment(sample)
+            sample = self.ds.sel(selector).load()
+            sample = self.augment(sample)
             x, y = self._get_sample(sample)
             yield x, y
 
@@ -255,7 +255,6 @@ class RecurrentDataset(IterableDataset):
 
         for v in self.static_inputs:
             if v in self.scalers:
-                #print(v)
                 scaled_x = np.array(self.scalers[v].transform(sel_ds[v]))
             else:
                 scaled_x = sel_ds[v].values
@@ -270,16 +269,14 @@ class RecurrentDataset(IterableDataset):
             else:
                 scaled_x = sel_ds[v].values
             if len(scaled_x.shape) == 3:
-                # dims should be (time, y, x)
+                # dims should be (time, var, y, x)
                 scaled_x = scaled_x.reshape(
                     self.sequence_length, 1, *scaled_x.shape[-2:])
             X.append(scaled_x)
-        #for xx in X:
-        #    print(xx.shape)
         #X = torch.from_numpy(np.concatenate(X, axis=1)).type(self.dtype).squeeze()
-        X = torch.from_numpy(np.hstack(X)).type(self.dtype).squeeze()
-        if torch.sum(torch.isnan(X)):
-            raise ValueError(f'Error in {sel_ds}')
+        X = torch.from_numpy(np.hstack(X)).type(self.dtype)#.squeeze()
+        #if torch.sum(torch.isnan(X)):
+        #    raise ValueError(f'Error in {sel_ds}')
         return X
 
     def _get_targets(self, sel_ds=None):
@@ -302,8 +299,8 @@ class RecurrentDataset(IterableDataset):
                     self.sequence_length, 1, *scaled_y.shape[-2:])
             y.append(scaled_y)
         y = torch.from_numpy(np.hstack(y)).type(self.dtype).squeeze()
-        if torch.sum(torch.isnan(y)):
-            raise ValueError(f'Error in {sel_ds}')
+        #if torch.sum(torch.isnan(y)):
+        #    raise ValueError(f'Error in {sel_ds}')
         return y
 
     def _get_sample(self, sel_ds):

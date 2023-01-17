@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import pandas as pd
 import xarray as xr
+import hydroml as hml
 from torch import nn
 from .models import (
     MultiStepMultiLayerModel,
@@ -11,6 +12,7 @@ from .models import (
     BasicConvNet,
 )
 from glob import glob
+from tqdm import tqdm
 from .dataset import RecurrentDataset
 from .model_builder import ModelBuilder
 from hydroml import scalers
@@ -169,7 +171,7 @@ def run_subsurface_forecast(ds, config):
         state_inputs=state_vars,
         dynamic_outputs=out_vars,
         scalers=conus_scalers,
-        sequence_length=seq_len,
+        sequence_length=1, #seq_len,
         patch_sizes=patch_sizes,
     )
     dataset.per_worker_init()
@@ -181,13 +183,20 @@ def run_subsurface_forecast(ds, config):
     model_config['subsurface_parameters'] = config['subsurface_parameters']
     model_config['state_vars'] = config['state_vars']
     model_config['out_vars'] = config['out_vars']
-    model_config['sequence_length'] = config['forecast_length']
+    model_config['sequence_length'] = 1
 
     model = ModelBuilder.build_emulator(
         emulator_type=config['model_def']['type'],
         model_config=config['model_def']['model_config']
     )
-    weights = torch.load(config['model_state_file'], map_location=DEVICE)
+    if 'model_state_file' in config:
+        weights = torch.load(config['model_state_file'], map_location=DEVICE)
+    elif 'run_name' in config:
+        assert 'log_dir' in config, (
+            'You put the run name, but not the location!')
+        log_dir = config['log_dir']
+        run_name = config['run_name']
+        weights = hml.utils.load_state_dict_from_checkpoint(log_dir, run_name)
     model.load_state_dict(weights)
     model = model.to(DEVICE)
     model.eval();
@@ -216,26 +225,44 @@ def run_subsurface_forecast(ds, config):
     saturation = []
     water_table_depth = []
     streamflow = []
+    single_run = False
+    if 'member' not in ds:
+        single_run = True
+        ds = ds.expand_dims({'member': 1})
     with torch.no_grad():
         for m in range(len(ds['member'])):
-            x = dataset._get_inputs(ds.isel(member=m))[np.newaxis, ...].to(DEVICE)
-            pressure.append(model(x).cpu().numpy().squeeze())
+            pressure_times = []
+            for t in tqdm(range(config['forecast_length'])):
+                dsx = ds.isel(member=m, time=[t])
+                x = dataset._get_inputs(dsx)
+                # Newaxis represents batch size
+                if t > 0:
+                    x[..., -5:, :, :] = pred.clone()
+                x = x[np.newaxis, ...].to(DEVICE)
+                pred = model(x)
+                pressure_times.append(pred.cpu().numpy().squeeze())
+            pressure.append(np.stack(pressure_times))
     pressure = np.stack(pressure)
-    pressure = xr.DataArray(pressure, dims=['member', 'time', 'z', 'y', 'x'])
+    pressure = xr.DataArray(pressure, dims=('member', 'time', 'z', 'y', 'x'))
     pressure = conus_scalers['pressure'].inverse_transform(pressure)
+    pressure = pressure.transpose('member', 'time', 'z', 'y', 'x')
     pred_ds['pressure'] = pressure
     #TODO: FIXME: This shouldn't be hardcoded
     dz = torch.tensor([100.0, 1.0, 0.6, 0.3, 0.1])
 
     # Calculate derived quantities
     for m in range(len(ds['member'])):
-        pressure_tensor = torch.from_numpy(pressure.isel(member=m).values)
-        saturation_tensor = sat_fun(pressure_tensor, alpha, n)
+        pressure_tensor = torch.tensor(
+            pressure.isel(member=m).values
+        )
+        saturation_tensor = torch.stack([sat_fun(
+            pressure_tensor[i], alpha, n
+        ) for i in range(config['forecast_length'])])
         water_table_depth_tensor = torch.stack([wtd_fun(
             pressure_tensor[i],
             saturation_tensor[i],
             dz
-        ) for i in range(seq_len)])
+        ) for i in range(config['forecast_length'])])
         streamflow_tensor = torch.stack([flow_fun(
             pressure_tensor[i],
             slope_x.squeeze(),
@@ -244,7 +271,7 @@ def run_subsurface_forecast(ds, config):
             1000.0, #TODO: FIXME: These shouldn't be hardcoded
             1000.0, #TODO: FIXME: These shouldn't be hardcoded
             flow_method='OverlandFlow',
-        ) for i in range(seq_len)])
+        ) for i in range(config['forecast_length'])])
         saturation.append(saturation_tensor.cpu().numpy())
         water_table_depth.append(water_table_depth_tensor.cpu().numpy())
         streamflow.append(streamflow_tensor.cpu().numpy())
@@ -257,7 +284,7 @@ def run_subsurface_forecast(ds, config):
     pred_ds['streamflow'] = xr.DataArray(
         np.stack(streamflow), dims=['member', 'time', 'y', 'x'])
     pred_ds['soil_moisture'] = pred_ds['saturation'] * ds['porosity']
-    return pred_ds
+    return pred_ds.squeeze()
 
 
 def run_forecast(

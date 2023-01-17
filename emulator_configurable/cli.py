@@ -4,6 +4,8 @@ import json
 import os
 import sys
 import mlflow
+import shutil
+import hydroml as hml
 from functools import partial
 from pprint import pprint
 from pytorch_lightning.callbacks import (
@@ -19,14 +21,14 @@ def train_surface(
     mlflow.set_tracking_uri(f'file:{config["log_dir"]}')
     base_data_gen = emulator.utils.zarr_data_gen
     train_files = [
-        '/home/SHARED/data/ab6361/conus1_2003_preprocessed.zarr',
-        '/home/SHARED/data/ab6361/conus1_2004_preprocessed.zarr',
+        '/scratch/ab6361/pfclm_conus1_zarr/conus1_2003_preprocessed.zarr',
+        '/scratch/ab6361/pfclm_conus1_zarr/conus1_2004_preprocessed.zarr',
     ]
     config['train_data_gen_function'] = partial(
         base_data_gen, files=train_files
     )
     valid_files = [
-        '/home/SHARED/data/bah5/conus1_2005_preprocessed.zarr',
+        '/scratch/ab6361/pfclm_conus1_zarr/conus1_2005_preprocessed.zarr',
     ]
     config['valid_data_gen_function'] = partial(
         base_data_gen, files=valid_files
@@ -47,21 +49,20 @@ def train_surface(
     emulator.train.train_surface_model(config)
 
 
-
 def train_subsurface(
     config: dict,
 ):
     mlflow.set_tracking_uri(f'file:{config["log_dir"]}')
     base_data_gen = emulator.utils.zarr_data_gen
     train_files = [
-        '/home/SHARED/data/ab6361/conus1_2003_preprocessed.zarr',
-        '/home/SHARED/data/ab6361/conus1_2004_preprocessed.zarr',
+        '/scratch/ab6361/pfclm_conus1_zarr/conus1_2003_preprocessed.zarr',
+        '/scratch/ab6361/pfclm_conus1_zarr/conus1_2004_preprocessed.zarr',
     ]
     config['train_data_gen_function'] = partial(
         base_data_gen, files=train_files
     )
     valid_files = [
-        '/home/SHARED/data/bah5/conus1_2005_preprocessed.zarr',
+        '/scratch/ab6361/pfclm_conus1_zarr/conus1_2005_preprocessed.zarr',
     ]
     config['valid_data_gen_function'] = partial(
         base_data_gen, files=valid_files
@@ -79,7 +80,7 @@ def train_subsurface(
     config['callbacks'] = [metrics, checkpoint, lr_monitor]
     scaler_file = config.pop('scaler_file')
     config['scalers'] = scalers.load_scalers(scaler_file)
-    config['scalers']['pressure_1'] = config['scalers']['pressure']
+    config['scalers']['pressure_next'] = config['scalers']['pressure']
     emulator.train.train_model(config)
 
 
@@ -103,7 +104,33 @@ def predict_surface(
 def predict_subsurface(
     config: dict,
 ):
-    raise NotImplementedError()
+    import dask
+    from dask.distributed import Client, LocalCluster
+    dask.config.set(**{'array.slicing.split_large_chunks': False})
+    cluster = LocalCluster(
+        n_workers=12,
+        threads_per_worker=2,
+        memory_limit='96GB',
+        diagnostics_port=':3878'
+    )
+    client = Client(cluster)
+    print(client)
+    base_data_gen = emulator.utils.zarr_data_gen
+    in_files = [
+        '/scratch/ab6361/pfclm_conus1_zarr/conus1_2006_preprocessed.zarr',
+    ]
+    ds = base_data_gen(files=in_files).chunk(dict(time=1, x=512, y=512))
+    #scaler_file = config.pop('scaler_file')
+    #config['scalers'] = scalers.load_scalers(scaler_file)
+    pred_ds = emulator.forecast.run_subsurface_forecast(ds, config)
+    if 'save_path' in config and os.path.exists(config['save_path']):
+        shutil.rmtree(config['save_path'])
+    if 'save_path' in config and config['save_path'].endswith('zarr'):
+        pred_ds.to_zarr(config['save_path'], consolidated=True)
+    elif 'save_path' in config and config['save_path'].endswith('nc'):
+        pred_ds.to_netcdf(config['save_path'])
+    return pred_ds
+
 
 
 def predict_combined(

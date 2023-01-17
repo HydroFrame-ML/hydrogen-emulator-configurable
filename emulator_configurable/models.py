@@ -1,8 +1,10 @@
-from hydroml.loss import MWSE
+from hydroml.loss import MWSE, DWSE
 from functools import partial
 from torch import nn
 from torch.optim.lr_scheduler import ExponentialLR, OneCycleLR
 from typing import Optional, Union, List, Mapping
+
+from tqdm.autonotebook import tqdm
 
 import numpy as np
 import os
@@ -154,7 +156,7 @@ class MultiLSTMModel(pl.LightningModule):
         self,
         opt=torch.optim.AdamW,
     ):
-        optimizer = opt(self.parameters(), lr=0.001)
+        optimizer = opt(self.parameters(), lr=0.0001)
         #scheduler = ExponentialLR(optimizer, gamma=0.9)
         #scheduler = OneCycleLR(optimizer, max_lr=0.1,
         #        total_steps=self.steps_per_epoch * self.max_epochs)
@@ -205,9 +207,9 @@ class DoubleConv(nn.Module):
         self.activation = activation
         self.double_conv = nn.Sequential(
             nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
-            self.activation(inplace=True),
+            self.activation(),#(inplace=True),
             nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
-            self.activation(inplace=True)
+            self.activation(),#(inplace=True)
         )
 
     def forward(self, x):
@@ -606,22 +608,28 @@ class MultiStepModel(pl.LightningModule):
         state_vars,
         out_vars,
         sequence_length=7,
+        nlayers=5,
         layer_model=BasicConvNet,
         layer_model_kwargs={},
         stepping_index=-1,
         probability_of_true_inputs=0.0,
+        corrector_mode=False,
         inject_noise=False,
         rng=np.random,
     ):
         super().__init__()
+        self.nlayers = nlayers
         self.forcing_vars = forcing_vars
-        self.pf_parameters = [surface_parameters + subsurface_parameters]
-        self.state_vars = state_vars
-        self.out_vars = out_vars
+        self.pf_parameters = surface_parameters + self.nlayers * subsurface_parameters
+        self.state_vars = state_vars * self.nlayers
+        self.out_vars = out_vars * self.nlayers
         self.stepping_index = stepping_index
+        self.corrector_mode = corrector_mode
+        self.in_vars = self.forcing_vars+self.pf_parameters+self.state_vars
+        print(len(self.in_vars), len(self.out_vars), self.corrector_mode)
 
         self.model = layer_model(
-            self.forcing_vars+self.pf_parameters+self.state_vars,
+            self.in_vars,
             self.out_vars,
             **layer_model_kwargs
         )
@@ -637,29 +645,35 @@ class MultiStepModel(pl.LightningModule):
     def forward(self, x):
         # x has dims (batch, steps, features, height, width)
         # So now xx has dims (batch, features, height, width)
-        xx = x[:, 0]
+        xx = x[:, 0].clone()
         # y_hat_sub stores each timestep prediction
         y_hat_sub = []
-        y_hat_sub.append(self.model(xx))
-        noise_scale = 1e-7
+        pred = self.model(xx)#.squeeze()
+        #print(pred.shape, xx.shape)
+        if self.corrector_mode == True:
+            y_hat_sub.append(pred + xx[:, -self.stepping_index:, :, :])
+        else:
+            y_hat_sub.append(pred)
+        noise_scale = 1e-6
         # Iterate through time
         for i in range(1, self.sequence_length):
             # Get the ith timestep
             xx = x[:, i].clone()
             # Now copy in the pressure prediction
             # from the previous timestep
-            if self.rng.random() > self.probability_of_true_inputs:
-                xx[:, -self.stepping_index, :, :] = (
-                        y_hat_sub[-1].squeeze().detach().clone())
-            #if self.inject_noise:
-            #    noise = torch.from_numpy(
-            #        self.rng.random(size=xx.shape).astype(np.float32)
-            #    ).to(self.device)
-            #    xx = xx + noise_scale * noise
-            y_hat_sub.append(self.model(xx))
+            #replace=1
+            xx[:, -self.stepping_index, :, :] = (
+                y_hat_sub[-1].squeeze().detach().clone())
+            pred = self.model(xx)#.squeeze()
+            if self.corrector_mode == True:
+                y_hat_sub.append(pred + y_hat_sub[-1])
+            else:
+                y_hat_sub.append(pred)
         # Stack everything together to get dims
         # (batch, steps, features, height, width)
         return torch.stack(y_hat_sub, axis=1)
+
+
 
     def training_step(self, train_batch, train_batch_idx):
         x, y = train_batch
@@ -677,19 +691,20 @@ class MultiStepModel(pl.LightningModule):
 
     def configure_optimizers(
         self,
-        opt=torch.optim.SGD,
+        opt=torch.optim.AdamW,
     ):
-        optimizer = opt(self.parameters(), lr=1e-3)
+        optimizer = opt(self.parameters(), lr=0.0003)
         return optimizer
         #scheduler = ExponentialLR(optimizer, gamma=0.9)
         #scheduler = OneCycleLR(optimizer, max_lr=0.01,
         #        total_steps=self.steps_per_epoch * self.max_epochs)
         #return [optimizer], [scheduler]
 
-    def configure_loss(self, loss_fun=MWSE):
-        weights = torch.log(torch.arange(self.sequence_length) + 1.1)
-        #weights = weights.to(self.device)
-        loss_fun = partial(loss_fun, weights=weights)
+    def configure_loss(self, loss_fun=DWSE):
+        #weights = torch.log(torch.arange(self.sequence_length) + 1.1)
+        #weights = weights / torch.sum(weights)
+        ##weights = weights.to(self.device)
+        #loss_fun = partial(loss_fun, weights=weights)
         self.loss_fun = loss_fun
 
 
@@ -763,11 +778,13 @@ class FiveLayerModel(pl.LightningModule):
 
         self.feature_indexers = self._gen_feature_indexers()
         #NOTE: We go bottom to top like parflow
-        self.sub_models = [self._bot_layer_sub_model()]
-        for i in range(3):
-            self.sub_models.append(self._mid_layer_sub_model())
-        self.sub_models.append(self._top_layer_sub_model())
-        self.sub_models = nn.ModuleList(self.sub_models)
+        self.sub_models = nn.ModuleList([
+            self._bot_layer_sub_model(),
+            self._mid_layer_sub_model(has_forcing=False),
+            self._mid_layer_sub_model(has_forcing=False),
+            self._mid_layer_sub_model(has_forcing=False),
+            self._top_layer_sub_model()
+        ])
 
     def _top_layer_sub_model(self):
         """
@@ -788,19 +805,19 @@ class FiveLayerModel(pl.LightningModule):
                 **self.layer_model_kwargs
         )
 
-    def _mid_layer_sub_model(self):
+    def _mid_layer_sub_model(self, has_forcing=True):
         """
         Creates a "middle" layer model. This model takes in
         forcing data, a single layer of subsurface parameters,
         and the state variables from the three layers
         (one above, one below, and the local layer).
         """
-        input_channels = (
-                len(self.forcing_vars)
-                + len(self.surface_parameters)
-                + 3 * len(self.subsurface_parameters)
-                + 3 * len(self.state_vars)
-        )
+        input_channels = (len(self.surface_parameters)
+                          + 3 * len(self.subsurface_parameters)
+                          + 3 * len(self.state_vars))
+        if has_forcing:
+            input_channels += len(self.forcing_vars)
+
         output_channels = len(self.out_vars)
         return self.layer_model(
                 in_vars=['_' for i in range(input_channels)],
@@ -815,8 +832,8 @@ class FiveLayerModel(pl.LightningModule):
         and the state varaibles from the lowest two layes.
         """
         input_channels = (
-                len(self.forcing_vars)
-                + len(self.surface_parameters)
+                #len(self.forcing_vars)
+                len(self.surface_parameters)
                 + 2 * len(self.subsurface_parameters)
                 + 2 * len(self.state_vars)
         )
@@ -892,25 +909,25 @@ class FiveLayerModel(pl.LightningModule):
         # Indices for 1st layer
         # then for the 2nd layer (and so on...)
         l0_idx = np.hstack([
-            forc_idx,
+            #forc_idx,
             surf_p_idx,
             l0_subp_idx,
             state_idx[[0, 1]]
         ])
         l1_idx = np.hstack([
-            forc_idx,
+            #forc_idx,
             surf_p_idx,
             l1_subp_idx,
             state_idx[[0, 1, 2]]
         ])
         l2_idx = np.hstack([
-            forc_idx,
+            #forc_idx,
             surf_p_idx,
             l2_subp_idx,
             state_idx[[1, 2, 3]]
         ])
         l3_idx = np.hstack([
-            forc_idx,
+            #forc_idx,
             surf_p_idx,
             l3_subp_idx,
             state_idx[[2, 3, 4]]
@@ -939,7 +956,8 @@ class FiveLayerModel(pl.LightningModule):
         """
         all_y = []
         for fi, sub_model in zip(self.feature_indexers, self.sub_models):
-            all_y.append(sub_model(x[:, fi]))
+            pred = sub_model(x[:, fi])
+            all_y.append(pred.squeeze(dim=1))
         y_hat = torch.stack(all_y, axis=1)
         return y_hat
 
@@ -1023,6 +1041,7 @@ class MultiStepMultiLayerModel(pl.LightningModule):
         layer_model_kwargs={},
         probability_of_true_inputs=0.0,
         inject_noise=True,
+        corrector_mode=True,
         rng=np.random,
     ):
         super().__init__()
@@ -1040,9 +1059,11 @@ class MultiStepMultiLayerModel(pl.LightningModule):
             layer_model=layer_model,
             layer_model_kwargs=layer_model_kwargs
         )
+        self.corrector_mode = corrector_mode
         self.sequence_length = sequence_length
         self.probability_of_true_inputs = probability_of_true_inputs
         self.inject_noise = inject_noise
+        print(self.corrector_mode, self.sequence_length, self.probability_of_true_inputs)
         self.rng = rng
 
     def forward(self, x):
@@ -1051,7 +1072,12 @@ class MultiStepMultiLayerModel(pl.LightningModule):
         xx = x[:, 0].clone()
         # y_hat_sub stores each timestep prediction
         y_hat_sub = []
-        y_hat_sub.append(self.model(xx))
+        pred = self.model(xx)#.squeeze()
+        #print(pred.shape, xx.shape)
+        if self.corrector_mode == True:
+            y_hat_sub.append(pred + xx[:, -5:, :, :])
+        else:
+            y_hat_sub.append(pred)
         noise_scale = 1e-6
         # Iterate through time
         for i in range(1, self.sequence_length):
@@ -1060,14 +1086,18 @@ class MultiStepMultiLayerModel(pl.LightningModule):
             # Now copy in the pressure prediction
             # from the previous timestep
             #replace=1
-            if self.rng.random() > self.probability_of_true_inputs:
-                xx[:, -5:, :, :] = y_hat_sub[-1].squeeze().detach().clone()
-            if self.inject_noise:
-                noise = torch.from_numpy(
-                    self.rng.random(size=xx.shape).astype(np.float32)
-                ).to(self.device)
-                xx = xx + noise_scale * noise
-            y_hat_sub.append(self.model(xx))
+            #if self.rng.random() > self.probability_of_true_inputs:
+            xx[:, -5:, :, :] = y_hat_sub[-1].squeeze().detach().clone()
+            #if self.inject_noise:
+            #    noise = torch.from_numpy(
+            #        self.rng.random(size=xx.shape).astype(np.float32)
+            #    ).to(self.device)
+            #    xx = xx + noise_scale * noise
+            pred = self.model(xx)#.squeeze()
+            if self.corrector_mode == True:
+                y_hat_sub.append(pred + xx[:, -5:, : , :])
+            else:
+                y_hat_sub.append(pred)
         # Stack everything together to get dims
         # (batch, steps, features, height, width)
         return torch.stack(y_hat_sub, axis=1)
@@ -1075,6 +1105,7 @@ class MultiStepMultiLayerModel(pl.LightningModule):
     def training_step(self, train_batch, train_batch_idx):
         x, y = train_batch
         y_hat = self(x).squeeze()
+        #loss = self.loss_fun(y_hat[..., 2:-2, 2:-2], y[..., 2:-2, 2:-2])
         loss = self.loss_fun(y_hat, y)
         self.log('train_loss', loss)
         return loss
@@ -1097,10 +1128,11 @@ class MultiStepMultiLayerModel(pl.LightningModule):
         #return [optimizer], [scheduler]
         return optimizer
 
-    def configure_loss(self, loss_fun=MWSE):
+    def configure_loss(self, loss_fun=DWSE):
         weights = torch.log(torch.arange(self.sequence_length) + 1.1)
+        weights = weights / torch.sum(weights)
         #weights = weights.to(self.device)
-        loss_fun = partial(loss_fun, weights=weights)
+        #loss_fun = partial(loss_fun, weights=weights)
         self.loss_fun = loss_fun
 
 

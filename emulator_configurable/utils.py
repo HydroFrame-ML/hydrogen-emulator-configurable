@@ -39,17 +39,31 @@ def conus1_data_gen(selectors={}):
     return ds.astype(np.float32).squeeze()
 
 
-def zarr_data_gen(files, selectors={}):
+def zarr_data_gen(
+    files,
+    selectors={},#{'x': slice(0, 560), 'y': slice(0,560)},
+    chunks={'x': 112, 'y':112, 'z':5, 'time': 7}
+):
     ds = xr.open_mfdataset(
         files, engine='zarr', consolidated=False, data_vars='minimal'
-    )
-    ds = ds.assign_coords({
-        'time': np.arange(len(ds['time'])),
-        'x': np.arange(len(ds['x'])),
-        'y': np.arange(len(ds['y'])),
+    ).chunk(chunks).isel(**selectors)
+    train_ds = ds.isel(time=slice(0, -1))
+    depth_varying_params = ['van_genuchten_alpha',  'van_genuchten_n',  'porosity',  'permeability']
+
+    for zlevel in range(5):
+        train_ds[f'pressure_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(0, -1)).drop('time')
+        train_ds[f'pressure_next_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(1, None)).drop('time')
+        for v in depth_varying_params:
+            train_ds[f'{v}_{zlevel}'] = ds[v].isel(z=zlevel)
+    # train_ds['melt'] = ds['swe'].diff(dim='time').drop('time')
+
+    train_ds = train_ds.assign_coords({
+        'time': np.arange(len(train_ds['time'])),
+        'x': np.arange(len(train_ds['x'])),
+        'y': np.arange(len(train_ds['y'])),
         'z': np.arange(len(ds['z'])),
     })
-    return ds.squeeze()
+    return train_ds
 
 
 def netcdf_data_gen(selectors={}):
@@ -82,13 +96,15 @@ def netcdf_data_gen(selectors={}):
     return ds
 
 
-def layered_data_gen(selectors={}):
-    ds = xr.open_dataset('/home/SHARED/data/ab6361/conus1_2006_test.nc')
-    met_ds = xr.open_dataset('/home/SHARED/data/ab6361/conus1_2006_met_test.nc')
-    ds = ds.update(met_ds)
-    ds = ds.isel(**selectors)
+def layered_data_gen(
+    files,
+    selectors={'x': slice(0, 560), 'y': slice(0,560)},
+    chunks={'x': 112, 'y':112, 'z':5, 'time': 7}
+):
+    ds = xr.open_mfdataset(
+        files, engine='zarr', consolidated=False, data_vars='minimal'
+    ).chunk(chunks).isel(**selectors)
     train_ds = ds.isel(time=slice(0, -1))
-    train_ds = train_ds.drop(['time', 'latitude', 'longitude'])
     depth_varying_params = ['van_genuchten_alpha',  'van_genuchten_n',  'porosity',  'permeability']
 
     for zlevel in range(5):
@@ -96,13 +112,13 @@ def layered_data_gen(selectors={}):
         train_ds[f'pressure_next_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(1, None)).drop('time')
         for v in depth_varying_params:
             train_ds[f'{v}_{zlevel}'] = ds[v].isel(z=zlevel)
-    train_ds['melt'] = ds['swe'].diff(dim='time').drop('time')
+    # train_ds['melt'] = ds['swe'].diff(dim='time').drop('time')
 
     train_ds = train_ds.assign_coords({
         'time': np.arange(len(train_ds['time'])),
         'x': np.arange(len(train_ds['x'])),
         'y': np.arange(len(train_ds['y'])),
-        #'z': np.arange(len(ds['z'])),
+        'z': np.arange(len(ds['z'])),
     })
     return train_ds
 
