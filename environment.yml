@@ -1,0 +1,34 @@
+name: pfclm_emulator
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - pytorch
+  - torchvision
+  - torchaudio
+  - torchdata
+  - pytorch-lightning
+  - pytorch-cuda=11.7
+  - xarray
+  - xskillscore
+  - tqdm
+  - numcodecs
+  - dask
+  - netcdf4
+  - zarr
+  - fsspec
+  - aiohttp
+  - pooch
+  - fiona
+  - pyogrio
+  - geopandas
+  - rioxarray
+  - cartopy
+  - holoviews
+  - geoviews
+  - jupyter
+  - jupyterlab
+  - pip:
+    - pftools
