@@ -3,7 +3,6 @@ channels:
   - pytorch
   - nvidia
   - conda-forge
-  - defaults
 dependencies:
   - pytorch
   - torchvision
@@ -28,6 +27,9 @@ dependencies:
   - jupyterlab
   - mlflow
   - ipykernel
+  - seaborn
+  - numcodecs
+  - xbatcher
   - pip
   - pip:
     - pftools
