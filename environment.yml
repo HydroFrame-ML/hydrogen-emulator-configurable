@@ -21,14 +21,13 @@ dependencies:
   - fsspec
   - aiohttp
   - pooch
-  - fiona
-  - pyogrio
-  - geopandas
   - rioxarray
-  - cartopy
   - holoviews
   - geoviews
   - jupyter
   - jupyterlab
+  - mlflow
+  - ipykernel
+  - pip
   - pip:
     - pftools
