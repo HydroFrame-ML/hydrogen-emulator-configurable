@@ -200,7 +200,9 @@ class ForcedSTRNN(pl.LightningModule):
         return [optimizer], [scheduler]
 
     def configure_loss(self, loss_fun=DWSE):
-        self.loss_fun = loss_fun
+        def _inner_loss(yhat, y):
+            return loss_fun(yhat, y) + self.decouple_loss
+        self.loss_fun = _inner_loss
 
 
 
