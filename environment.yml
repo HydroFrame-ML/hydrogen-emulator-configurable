@@ -13,6 +13,7 @@ dependencies:
   - xarray
   - xskillscore
   - tqdm
+  - dill
   - numcodecs
   - dask
   - netcdf4
