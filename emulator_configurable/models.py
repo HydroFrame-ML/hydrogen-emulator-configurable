@@ -58,7 +58,7 @@ class ActionSTLSTMCell(nn.Module):
         return h_new, c_new, m_new, delta_c, delta_m
 
 
-@model_builder.register_model('ForcedSTRNN')
+@model_builder.register_emulator('ForcedSTRNN')
 class ForcedSTRNN(pl.LightningModule):
     def __init__(
         self,
@@ -69,8 +69,6 @@ class ForcedSTRNN(pl.LightningModule):
         init_cond_channel,
         static_channel,
         out_channel,
-        img_width,
-        device,
         filter_size=5,
         stride=1,
     ):
@@ -83,7 +81,6 @@ class ForcedSTRNN(pl.LightningModule):
         self.frame_channel = img_channel
         self.num_layers = num_layers
         self.num_hidden = num_hidden
-        self.device = device
         self.out_channel = out_channel
         self.decouple_loss = None
         cell_list = []
@@ -184,7 +181,6 @@ class ForcedSTRNN(pl.LightningModule):
     def validation_step(self, val_batch, val_batch_idx):
         forcing, state, params, target = val_batch
         y_hat = self(forcing, state, params).squeeze()
-        y_hat = self(target).squeeze()
         loss = self.loss_fun(y_hat, target)
         self.log('val_loss', loss)
         return loss
@@ -192,12 +188,14 @@ class ForcedSTRNN(pl.LightningModule):
     def configure_optimizers(
         self,
         opt=torch.optim.AdamW,
+        lr=0.005,
     ):
-        optimizer = opt(self.model.parameters(), lr=0.001)
+        optimizer = opt(self.parameters(), lr=lr)
         #scheduler = ExponentialLR(optimizer, gamma=0.9)
-        scheduler = OneCycleLR(optimizer, max_lr=0.001,
-                total_steps=self.steps_per_epoch * self.max_epochs)
-        return [optimizer], [scheduler]
+        # scheduler = OneCycleLR(optimizer, max_lr=0.001,
+        #         total_steps=self.steps_per_epoch * self.max_epochs)
+        # return [optimizer], [scheduler]
+        return optimizer
 
     def configure_loss(self, loss_fun=DWSE):
         def _inner_loss(yhat, y):

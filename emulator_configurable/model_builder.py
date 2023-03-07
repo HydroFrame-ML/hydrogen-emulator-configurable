@@ -38,15 +38,11 @@ class ModelFactory:
         message = str(self.registry)
         return message
 
-    def build_emulator(
-        self,
-        emulator_type,
-        model_config
-    ):
+    def build_emulator(self, type, model_config):
         layer_model = model_config.pop('layer_model', None)
         if layer_model:
             model_config['layer_model'] = self.registry['model'][layer_model]
-        ModelClass = self.registry['emulator'][emulator_type]
+        ModelClass = self.registry['emulator'][type]
         return ModelClass(**model_config)
 
 
