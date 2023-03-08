@@ -188,7 +188,7 @@ class ForcedSTRNN(pl.LightningModule):
     def configure_optimizers(
         self,
         opt=torch.optim.AdamW,
-        lr=0.005,
+        lr=0.001,
     ):
         optimizer = opt(self.parameters(), lr=lr)
         #scheduler = ExponentialLR(optimizer, gamma=0.9)
