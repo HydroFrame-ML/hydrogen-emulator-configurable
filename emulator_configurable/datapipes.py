@@ -175,6 +175,7 @@ def create_new_loader(
     targets,
     batch_size,
     num_workers,
+    input_overlap=None,
     shuffle=True,
     selectors={},
     dtype=torch.float32,
@@ -185,7 +186,8 @@ def create_new_loader(
     scalers = hml.scalers.load_scalers(scaler_file)
     input_dims = {'time': nt, 'y': ny, 'x': nx}
     # FIXME: Hard coded for now
-    input_overlap = {'time': nt//4, 'y': ny//3, 'x': nx//3}
+    if not input_overlap:
+        input_overlap = {'time': nt//4, 'y': ny//3, 'x': nx//3}
     number_batches = estimate_xbatcher_pipe_size(
         files=files,
         iselectors=selectors,
