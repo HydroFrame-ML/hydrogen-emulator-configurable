@@ -15,6 +15,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from . import model_builder
 
+
 @model_builder.register_layer('ActionSTLSTMCell')
 class ActionSTLSTMCell(nn.Module):
     def __init__(self, in_channel, action_channel, num_hidden, filter_size, stride):
@@ -107,11 +108,11 @@ class ForcedSTRNN(pl.LightningModule):
         )
 
         self.memory_encoder = nn.Conv2d(
-            self.init_cond_channel, num_hidden[0], kernel_size=1, bias=False
+            self.init_cond_channel, num_hidden[0], kernel_size=1, bias=True
         )
-        # Should we encode different layers separately?
+        #  Should we encode different layers separately?
         self.cell_encoder = nn.Conv2d(
-            self.static_channel, num_hidden[0], kernel_size=1, bias=False
+            self.static_channel, sum(num_hidden), kernel_size=1, bias=True
         )
 
     def update_state(self, state):
@@ -145,7 +146,11 @@ class ForcedSTRNN(pl.LightningModule):
         # TODO: Fix this requirement
         memory = self.memory_encoder(init_cond[:, 0])
         # TODO: Should we encode all layer cell states?
-        c_t[0] = self.cell_encoder(static_inputs[:, 0])
+        c_t = list(torch.split(
+            self.cell_encoder(static_inputs[:, 0]),
+            self.num_hidden, dim=1
+        ))
+
 
         # First input is the initial condition
         x = init_cond[:, 0]
@@ -191,11 +196,10 @@ class ForcedSTRNN(pl.LightningModule):
         lr=0.001,
     ):
         optimizer = opt(self.parameters(), lr=lr)
-        #scheduler = ExponentialLR(optimizer, gamma=0.9)
-        # scheduler = OneCycleLR(optimizer, max_lr=0.001,
-        #         total_steps=self.steps_per_epoch * self.max_epochs)
-        # return [optimizer], [scheduler]
-        return optimizer
+        scheduler = OneCycleLR(optimizer, max_lr=0.001, total_steps=self.trainer.estimated_stepping_batches)
+        scheduler = {"scheduler": scheduler, "interval" : "step"}
+        # return optimizer
+        return [optimizer], [scheduler]
 
     def configure_loss(self, loss_fun=DWSE):
         def _inner_loss(yhat, y):

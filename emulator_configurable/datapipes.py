@@ -14,7 +14,7 @@ from torchdata.datapipes import functional_datapipe
 from torch.utils.data import DataLoader
 
 
-def estimate_xbatcher_pipe_size(
+def create_batch_generator(
     files, iselectors, var_list,
     input_dims, **kwargs
 ):
@@ -23,6 +23,17 @@ def estimate_xbatcher_pipe_size(
     shape = tuple(dims.values())
     ds = xr.DataArray(np.empty(shape), dims=dims)
     bgen = xb.BatchGenerator(ds, input_dims, **kwargs)
+    return bgen
+
+
+def estimate_xbatcher_pipe_size(
+    files, iselectors, var_list,
+    input_dims, **kwargs
+):
+    bgen = create_batch_generator(
+        files, iselectors, var_list,
+        input_dims, **kwargs
+    )
     return len(bgen)
 
 
@@ -126,7 +137,10 @@ def split_and_convert(
     lt = layer_targets
     dims = ('batch', 'time', 'variable', 'y', 'x')
     forcing = batch[lf].to_array().transpose(*dims)
-    params = batch[lp].isel(time=[0]).to_array().transpose(*dims)
+    try:
+        params = batch[lp].isel(time=[0]).to_array().transpose(*dims)
+    except:
+        params = batch[lp].expand_dims({'time': 1}).isel(time=[0]).to_array().transpose(*dims)
     state = batch[ls].isel(time=[0]).to_array().transpose(*dims)
     target = batch[lt].to_array().transpose(*dims)
 
@@ -158,6 +172,7 @@ def create_new_loader(
     targets,
     batch_size,
     num_workers,
+    shuffle=True,
     selectors={},
     dtype=torch.float32,
     pin_memory=True,
@@ -200,7 +215,7 @@ def create_new_loader(
         input_overlap=input_overlap,
         number_batches=number_batches,
         preload_batch=False,
-        shuffle=True,
+        shuffle=shuffle,
     )
     #pipe = pipe.sharding_filter()
     # steps_per_epoch = len(pipe)

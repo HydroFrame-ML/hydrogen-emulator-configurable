@@ -56,6 +56,7 @@ def train_model(
         targets=config['targets'],
         batch_size=config['batch_size'],
         num_workers=config['num_workers'],
+        selectors={'time': slice(0, 370)}
     )
 
     model = ModelBuilder.build_emulator(
