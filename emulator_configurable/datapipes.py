@@ -13,6 +13,9 @@ from torchdata.datapipes.iter import IterDataPipe
 from torchdata.datapipes import functional_datapipe
 from torch.utils.data import DataLoader
 
+def slices_to_icoords(selector):
+    return {k: np.arange(v.start, v.stop, v.step)
+            for k, v in selector.items()}
 
 def create_batch_generator(
     files, iselectors, var_list,
