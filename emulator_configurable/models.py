@@ -24,11 +24,11 @@ class ActionSTLSTMCell(nn.Module):
         self.num_hidden = num_hidden
         self.padding = filter_size // 2
         self._forget_bias = 1.0
-        self.conv_x = nn.Conv2d(in_channel,     num_hidden * 7, filter_size, stride, self.padding)
-        self.conv_a = nn.Conv2d(action_channel, num_hidden * 4, filter_size, stride, self.padding)
-        self.conv_h = nn.Conv2d(num_hidden,     num_hidden * 4, filter_size, stride, self.padding)
-        self.conv_m = nn.Conv2d(num_hidden,     num_hidden * 3, filter_size, stride, self.padding)
-        self.conv_o = nn.Conv2d(num_hidden * 2, num_hidden,     filter_size, stride, self.padding)
+        self.conv_x = nn.Conv2d(in_channel,     num_hidden * 7, filter_size, stride, self.padding, padding_mode='reflect')
+        self.conv_a = nn.Conv2d(action_channel, num_hidden * 4, filter_size, stride, self.padding, padding_mode='reflect')
+        self.conv_h = nn.Conv2d(num_hidden,     num_hidden * 4, filter_size, stride, self.padding, padding_mode='reflect')
+        self.conv_m = nn.Conv2d(num_hidden,     num_hidden * 3, filter_size, stride, self.padding, padding_mode='reflect')
+        self.conv_o = nn.Conv2d(num_hidden * 2, num_hidden,     filter_size, stride, self.padding, padding_mode='reflect')
         self.conv_last = nn.Conv2d(num_hidden * 2, num_hidden, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x_t, a_t, h_t, c_t, m_t):
@@ -151,7 +151,6 @@ class ForcedSTRNN(pl.LightningModule):
             self.num_hidden, dim=1
         ))
 
-
         # First input is the initial condition
         x = init_cond[:, 0]
         for t in range(timesteps):
@@ -165,10 +164,11 @@ class ForcedSTRNN(pl.LightningModule):
                 delta_c_list[i] = self.update_state(dc)
                 delta_m_list[i] = self.update_state(dm)
 
-            x = self.conv_last(h_t[-1]) + x
+            x = self.conv_last(h_t[-1])# + x
             next_frames.append(x)
+
             # decoupling loss
-            for i in range(0, self.num_layers):
+            for i in range(self.num_layers):
                 decouple_loss.append(self.calc_decouple_loss(delta_c_list[i], delta_m_list[i]))
 
         self.decouple_loss = torch.mean(torch.stack(decouple_loss, dim=0))
@@ -193,14 +193,17 @@ class ForcedSTRNN(pl.LightningModule):
     def configure_optimizers(
         self,
         opt=torch.optim.AdamW,
-        lr=0.001,
+        lr=1e-3,
     ):
-        optimizer = opt(self.parameters(), lr=lr)
-        scheduler = OneCycleLR(optimizer, max_lr=0.001, total_steps=self.trainer.estimated_stepping_batches)
-        scheduler = {"scheduler": scheduler, "interval" : "step"}
-        # return optimizer
-        return [optimizer], [scheduler]
+        optimizer = opt(self.parameters(), lr=lr, betas=[0.85, 0.95])
+        #total_epochs = self.trainer.max_epochs
+        #steps = 45_000
+        #scheduler = OneCycleLR(optimizer, max_lr=lr, total_steps=total_epochs * steps)
+        #scheduler = {"scheduler": scheduler, "interval" : "step"}
+        #return [optimizer], [scheduler]
+        return optimizer
 
+    #def configure_loss(self, loss_fun=F.mse_loss):
     def configure_loss(self, loss_fun=DWSE):
         def _inner_loss(yhat, y):
             return loss_fun(yhat, y) + self.decouple_loss
@@ -218,44 +221,42 @@ class BaseLSTM(pl.LightningModule):
 
     Parameters
     ----------
-    in_vars:
-        TODO: FIXME
-    out_vars:
-        TODO: FIXME
-    hidden_dim:
-        The dimension of the hidden layers
-    n_layers:
-        The number of LSTM layers
-    dropout_prob:
-        Probability for dropout between LSTM layers
-    sequence_length:
-        The length of the `sequence_length` dimension
-        in an output sample
+    in_features : int
+        The number of input features
+    out_features : int
+        The number of output features
+    hidden_dim : int
+        The number of hidden features
+    nlayers : int
+        The number of layers
+    dropout_prob : float
+        The dropout probability
+    sequence_length : int
+        The number of timesteps to use for the LSTM
     """
 
     def __init__(
         self,
-        in_vars,
-        out_vars,
+        in_features,
+        out_features,
         hidden_dim,
         nlayers,
         dropout_prob=0.0,
         sequence_length=1
     ):
         super().__init__()
-        self.in_vars = in_vars
-        self.out_vars = out_vars
-        n_input_features = len(self.in_vars)
-        n_output_features = len(self.out_vars)
+        self.in_features = in_features
+        self.out_features = out_features
+        self.hidden_dim = hidden_dim
+        self.sequence_length = sequence_length
         self.lstm = nn.LSTM(
-            n_input_features,
-            hidden_dim,
+            self.in_features,
+            self.hidden_dim,
             nlayers,
             dropout=dropout_prob,
             batch_first=True
         )
-        self.fc = nn.Linear(hidden_dim, n_output_features)
-        self.sequence_length = sequence_length
+        self.fc = nn.Linear(self.hidden_dim, self.out_features)
 
     def forward(self, x):
         """Apply the model for a given sample"""
@@ -292,95 +293,6 @@ class BaseLSTM(pl.LightningModule):
 
         loss = self.loss_fun(y_hat, y)
         self.log('val_loss', loss)
-
-
-
-@model_builder.register_emulator('MultiLSTMModel')
-class MultiLSTMModel(pl.LightningModule):
-    """
-    A wrapper around the LSTMModel, which
-    represents each output variable with it's own
-    LSTM with it's own trainable weights/biases.
-    """
-    def __init__(
-        self,
-        forcing_vars,
-        surface_parameters,
-        subsurface_parameters,
-        state_vars,
-        out_vars,
-        sequence_length,
-        layer_model=BaseLSTM,
-        layer_model_kwargs={},
-    ):
-        super().__init__()
-        if 'vegtype' in surface_parameters:
-            extra_vars = [f'vegtype_{i}' for i in range(1, 18)]
-            surface_parameters = surface_parameters + extra_vars
-        if 'vegetation_type' in surface_parameters:
-            extra_vars = [f'vegetation_type_{i}' for i in range(1, 18)]
-            surface_parameters = surface_parameters + extra_vars
-        self.in_vars = (forcing_vars + surface_parameters
-                        + subsurface_parameters + state_vars)
-        self.out_vars = out_vars
-        self.sequence_length = sequence_length
-        n_input_features = len(self.in_vars)
-        n_output_features = len(self.out_vars)
-        self.lstmlist = nn.ModuleList([
-            layer_model(
-                in_vars=self.in_vars,
-                out_vars=['_'],
-                sequence_length=self.sequence_length,
-                **layer_model_kwargs,
-            ) for _ in range(n_output_features)
-        ])
-
-    def forward(self, x):
-        """Apply the model for a given sample"""
-        yhat = []
-        for lstm in self.lstmlist:
-            out = lstm(x).squeeze()
-            yhat.append(out)
-        yhat = torch.stack(yhat, axis=-1)
-        yhat = yhat[..., -self.sequence_length:]
-        return yhat
-
-    def configure_optimizers(
-        self,
-        opt=torch.optim.AdamW,
-    ):
-        optimizer = opt(self.parameters(), lr=0.0001)
-        #scheduler = ExponentialLR(optimizer, gamma=0.9)
-        #scheduler = OneCycleLR(optimizer, max_lr=0.1,
-        #        total_steps=self.steps_per_epoch * self.max_epochs)
-        #return [optimizer], [scheduler]
-        return optimizer
-
-    def configure_loss(self, loss_fun=F.mse_loss):
-        self.loss_fun = loss_fun
-
-    def configure_loss(self, loss_fun=F.mse_loss):
-        self.loss_fun = loss_fun
-
-    def training_step(self, train_batch, batch_idx):
-        x, y = train_batch
-        y_hat = self.forward(x)
-        y = y[:, -self.sequence_length:, :].squeeze()
-        y_hat = y_hat.squeeze()
-
-        loss = self.loss_fun(y_hat, y)
-        self.log('train_loss', loss)
-        return loss
-
-    def validation_step(self, val_batch, batch_idx):
-        x, y = val_batch
-        y_hat = self.forward(x)
-        y = y[:, -self.sequence_length:, :].squeeze()
-        y_hat = y_hat.squeeze()
-
-        loss = self.loss_fun(y_hat, y)
-        self.log('val_loss', loss)
-
 
 
 @model_builder.register_layer('DoubleConv')
@@ -497,15 +409,15 @@ class UNet(pl.LightningModule):
 
     def __init__(
         self,
-        in_vars=[''],
-        out_vars=[''],
+        in_channel,
+        out_channel,
         activation=nn.Mish,
         bilinear=True,
         base_channels=8
     ):
         super().__init__()
-        self.in_channels = len(in_vars)
-        self.out_channels = len(out_vars)
+        self.in_channels = in_channel
+        self.out_channels = out_channel
         self.bilinear = bilinear
         c = base_channels
 
@@ -633,8 +545,7 @@ class ResidualBlock(nn.Module):
         identity = x
         for l in self.conv_block:
             x = l(x)
-        x = x + identity
-        out = self.activation(x)
+        out = self.activation(x + identity)
         return out
 
 
@@ -717,8 +628,8 @@ class BasicResNet(pl.LightningModule):
 
     def __init__(
         self,
-        in_vars=[''],
-        out_vars=[''],
+        in_channels,
+        out_channels,
         hidden_dim=64,
         kernel_size=5,
         res_block_depth=1,
@@ -726,9 +637,9 @@ class BasicResNet(pl.LightningModule):
         activation=nn.Mish,
     ):
         super().__init__()
-        self.input_channels = len(in_vars)
+        self.input_channels = in_channels
         self.hidden_dim = hidden_dim
-        self.output_channels = len(out_vars)
+        self.output_channels = out_channels
         self.kernel_size = kernel_size
         self.depth = total_depth
         self.res_block_depth = res_block_depth
@@ -764,7 +675,6 @@ class BasicResNet(pl.LightningModule):
         self.layers = nn.ModuleList(self.layers)
 
     def forward(self, x):
-        identity = x
         for l in self.layers:
             x = l(x)
         return x
@@ -795,536 +705,69 @@ class BasicResNet(pl.LightningModule):
 class MultiStepModel(pl.LightningModule):
     def __init__(
         self,
-        forcing_vars,
-        surface_parameters,
-        subsurface_parameters,
-        state_vars,
-        out_vars,
-        sequence_length=7,
-        nlayers=5,
-        layer_model=BasicConvNet,
+        in_channel,
+        out_channel,
+        layer_model=UNet,
         layer_model_kwargs={},
-        stepping_index=-1,
-        probability_of_true_inputs=0.0,
-        corrector_mode=False,
-        inject_noise=False,
-        rng=np.random,
     ):
         super().__init__()
-        self.nlayers = nlayers
-        self.forcing_vars = forcing_vars
-        self.pf_parameters = surface_parameters + self.nlayers * subsurface_parameters
-        self.state_vars = state_vars * self.nlayers
-        self.out_vars = out_vars * self.nlayers
-        self.stepping_index = stepping_index
-        self.corrector_mode = corrector_mode
-        self.in_vars = self.forcing_vars+self.pf_parameters+self.state_vars
-        print(len(self.in_vars), len(self.out_vars), self.corrector_mode)
-
+        self.in_channel = in_channel
+        self.out_channel = out_channel
         self.model = layer_model(
-            self.in_vars,
-            self.out_vars,
+            self.in_channel,
+            self.out_channel,
             **layer_model_kwargs
         )
-        self.sequence_length = sequence_length
-        self.probability_of_true_inputs = probability_of_true_inputs
-        self.inject_noise = inject_noise
-        self.rng = rng
-        self.save_hyperparameters(
-            'forcing_vars', 'surface_parameters', 'subsurface_parameters', 'state_vars',
-            'sequence_length', 'probability_of_true_inputs', 'inject_noise'
-        )
 
-    def forward(self, x):
-        # x has dims (batch, steps, features, height, width)
-        # So now xx has dims (batch, features, height, width)
-        xx = x[:, 0].clone()
-        # y_hat_sub stores each timestep prediction
-        y_hat_sub = []
-        pred = self.model(xx)#.squeeze()
-        #print(pred.shape, xx.shape)
-        if self.corrector_mode == True:
-            y_hat_sub.append(pred + xx[:, -self.stepping_index:, :, :])
-        else:
-            y_hat_sub.append(pred)
-        noise_scale = 1e-6
-        # Iterate through time
-        for i in range(1, self.sequence_length):
-            # Get the ith timestep
-            xx = x[:, i].clone()
-            # Now copy in the pressure prediction
-            # from the previous timestep
-            #replace=1
-            xx[:, -self.stepping_index, :, :] = (
-                y_hat_sub[-1].squeeze().detach().clone())
-            pred = self.model(xx)#.squeeze()
-            if self.corrector_mode == True:
-                y_hat_sub.append(pred + y_hat_sub[-1])
-            else:
-                y_hat_sub.append(pred)
-        # Stack everything together to get dims
-        # (batch, steps, features, height, width)
-        return torch.stack(y_hat_sub, axis=1)
+    def forward(self, forcings, init_cond, static_inputs):
+        batch, timesteps, channels, height, width = forcings.shape
 
+        next_frames = []
 
+        # NOTE: init_cond and static_inputs have length=1 on time
+        x = init_cond[:, 0]
+        s = static_inputs[:, 0]
+        for t in range(timesteps):
+            f_t = forcings[:, t]
+            inp = torch.cat([f_t, s, x], dim=1)
+            out = torch.tanh(self.model(inp))
+            x = out + x
+            next_frames.append(x)
+        next_frames = torch.stack(next_frames, dim=1)
+        return next_frames
 
     def training_step(self, train_batch, train_batch_idx):
-        x, y = train_batch
-        y_hat = self(x).squeeze()
-        loss = self.loss_fun(y_hat, y)
+        forcing, state, params, target = train_batch
+        y_hat = self(forcing, state, params).squeeze()
+        loss = self.loss_fun(y_hat, target)
+        if torch.isnan(loss):
+            print(torch.isnan(target).sum(), torch.isnan(y_hat).sum())
+            raise ValueError('Loss went nan')
+
         self.log('train_loss', loss)
         return loss
 
     def validation_step(self, val_batch, val_batch_idx):
-        x, y = val_batch
-        y_hat = self(x).squeeze()
-        loss = self.loss_fun(y_hat, y)
+        forcing, state, params, target = val_batch
+        y_hat = self(forcing, state, params).squeeze()
+        loss = self.loss_fun(y_hat, target)
         self.log('val_loss', loss)
         return loss
 
     def configure_optimizers(
         self,
         opt=torch.optim.AdamW,
+        lr=1e-6,
     ):
-        optimizer = opt(self.parameters(), lr=0.0003)
-        return optimizer
-        #scheduler = ExponentialLR(optimizer, gamma=0.9)
-        #scheduler = OneCycleLR(optimizer, max_lr=0.01,
-        #        total_steps=self.steps_per_epoch * self.max_epochs)
-        #return [optimizer], [scheduler]
+        optimizer = opt(self.parameters(), lr=lr)
+        scheduler = OneCycleLR(optimizer, max_lr=lr, total_steps=self.trainer.estimated_stepping_batches)
+        scheduler = {"scheduler": scheduler, "interval" : "step"}
+        return [optimizer], [scheduler]
 
     def configure_loss(self, loss_fun=DWSE):
         #weights = torch.log(torch.arange(self.sequence_length) + 1.1)
         #weights = weights / torch.sum(weights)
         ##weights = weights.to(self.device)
-        #loss_fun = partial(loss_fun, weights=weights)
-        self.loss_fun = loss_fun
-
-
-@model_builder.register_emulator('FiveLayerModel')
-class FiveLayerModel(pl.LightningModule):
-    """
-    The FiveLayerModel is a set of interconnected models with some base
-    implementation which can be configured separately. This class is meant
-    to mimic the way in which a vertically discretized environmental model
-    is set up, where each sub-model represents an individual layer in the
-    discretization. These sub-models still represent a spatially-distributed
-    area (conventionally described as the x,y coordinates). The inputs to each
-    layer are partially defined by the adjacent layers. This implementation
-    handles those details behind the scenes, along with some other features,
-    all in the effort of keeping users from having to handle index juggling.
-
-    Note that while we list out the dimensions of variability each input class
-    can have, this model is inherently *not* temporal in nature and should be
-    thought of as only seeing a single time slice at a time.
-
-    Note that the term "layer" in this model documentation *always* refers to
-    a single entry in a vertical discretization, rather than the concept of
-    layers in deep-learning models.
-
-    Note that all layers see the forcing data.
-
-    Parameters
-    ----------
-    forcing_vars: List[str]
-        The names of variables which represent meteorologic forcing which have
-        variability in dimensions (time, y, x)
-    surface_parameters: List[str]
-        The names of variables which represent parameter values which
-        only vary on the surface (top) layer, meaning variability in
-        the (y, x) dimensions only.
-    subsurface_parameters: List[str]
-        The names of variables which represent subsurface parameter values
-        which have 3d variability (z, y, x)
-    state_vars: List[str]
-        The names of variables which represent the subsurface state and have
-        the full 4d variability (time, z, y, x).
-    activation: nn.Module
-        The activation function used for the `layer_model` (if applicable)
-    layer_model: nn.Module
-        The model structure that is used for each of the five discrete layers
-        Note this is just the reference to the class and not an instance of it.
-        Note this model must take in `grid_size`, `in_vars`, `out_vars`, and
-        `activation` as constructor arguments.
-    layer_model_kwargs: Mapping
-        Arguments to pass into each sub-model for the discrete layers
-    """
-
-    def __init__(
-        self,
-        forcing_vars,
-        surface_parameters,
-        subsurface_parameters,
-        state_vars,
-        out_vars,
-        layer_model=UNet,
-        layer_model_kwargs={},
-    ):
-        super().__init__()
-        self.forcing_vars = forcing_vars
-        self.surface_parameters = surface_parameters
-        self.subsurface_parameters = subsurface_parameters
-        self.state_vars = state_vars
-        self.out_vars = out_vars
-        self.layer_model = layer_model
-        self.layer_model_kwargs = layer_model_kwargs
-
-        self.feature_indexers = self._gen_feature_indexers()
-        #NOTE: We go bottom to top like parflow
-        self.sub_models = nn.ModuleList([
-            self._bot_layer_sub_model(),
-            self._mid_layer_sub_model(has_forcing=False),
-            self._mid_layer_sub_model(has_forcing=False),
-            self._mid_layer_sub_model(has_forcing=False),
-            self._top_layer_sub_model()
-        ])
-
-    def _top_layer_sub_model(self):
-        """
-        Creates the "top", or uppermost layer model. This model takes in
-        forcing data, surface parameters, the top layer of subsurface
-        parameters, and the state variables from the top two layers.
-        """
-        input_channels = (
-                len(self.forcing_vars)
-                + len(self.surface_parameters)
-                + 2 * len(self.subsurface_parameters)
-                + 2 * len(self.state_vars)
-        )
-        output_channels = len(self.out_vars)
-        return self.layer_model(
-                in_vars=['_' for i in range(input_channels)],
-                out_vars=['_' for i in range(output_channels)],
-                **self.layer_model_kwargs
-        )
-
-    def _mid_layer_sub_model(self, has_forcing=True):
-        """
-        Creates a "middle" layer model. This model takes in
-        forcing data, a single layer of subsurface parameters,
-        and the state variables from the three layers
-        (one above, one below, and the local layer).
-        """
-        input_channels = (len(self.surface_parameters)
-                          + 3 * len(self.subsurface_parameters)
-                          + 3 * len(self.state_vars))
-        if has_forcing:
-            input_channels += len(self.forcing_vars)
-
-        output_channels = len(self.out_vars)
-        return self.layer_model(
-                in_vars=['_' for i in range(input_channels)],
-                out_vars=['_' for i in range(output_channels)],
-                **self.layer_model_kwargs
-        )
-
-    def _bot_layer_sub_model(self):
-        """
-        Creates the "bottom" layer model. This model takes in
-        forcing data, a single layer of subsurface parameters,
-        and the state varaibles from the lowest two layes.
-        """
-        input_channels = (
-                #len(self.forcing_vars)
-                len(self.surface_parameters)
-                + 2 * len(self.subsurface_parameters)
-                + 2 * len(self.state_vars)
-        )
-        output_channels = len(self.out_vars)
-        return self.layer_model(
-                in_vars=['_' for i in range(input_channels)],
-                out_vars=['_' for i in range(output_channels)],
-                **self.layer_model_kwargs
-        )
-
-    def _gen_feature_indexers(self):
-        """
-        This method translates the featues to the indices needed
-        to pull them out of an input sample. This is required because
-        some of the `sub_models` receive the same input variables.
-        """
-        # Forcing index
-        forc_idx = np.arange(len(self.forcing_vars))
-        # Surface parameter index
-        surf_p_idx = np.arange(
-            len(self.forcing_vars),
-            len(self.forcing_vars) + len(self.surface_parameters)
-        )
-        # Subsurface parameter index
-        if not len(self.subsurface_parameters):
-            sub_p_idx = np.array([np.nan for _ in range(5)])
-        else:
-            sub_p_idx = np.arange(
-                len(self.forcing_vars) + len(self.surface_parameters),
-                (len(self.forcing_vars)
-                 + len(self.surface_parameters)
-                 + 5 * len(self.subsurface_parameters))
-            )
-        # Subsurface state index
-        state_idx = np.arange(
-            (len(self.forcing_vars)
-             + len(self.surface_parameters)
-             + 5 * len(self.subsurface_parameters)),
-            (len(self.forcing_vars)
-             + len(self.surface_parameters)
-             + 5 * len(self.subsurface_parameters)
-             + 5 * len(self.state_vars))
-        )
-        ss_idx = lambda s: [
-            (i*5)+s for i in range(len(self.subsurface_parameters))
-        ]
-
-        l = 0
-        l0_subp_idx = np.hstack([
-            np.array(sub_p_idx)[[(i*5)+l, (i*5)+l+1]]
-            for i in range(len(self.subsurface_parameters))
-        ])
-        l = 1
-        l1_subp_idx = np.hstack([
-            np.array(sub_p_idx)[[(i*5)+l-1, (i*5)+l, (i*5)+l+1]]
-            for i in range(len(self.subsurface_parameters))
-        ])
-        l = 2
-        l2_subp_idx = np.hstack([
-            np.array(sub_p_idx)[[(i*5)+l-1, (i*5)+l, (i*5)+l+1]]
-            for i in range(len(self.subsurface_parameters))
-        ])
-        l = 3
-        l3_subp_idx = np.hstack([
-            np.array(sub_p_idx)[[(i*5)+l-1, (i*5)+l, (i*5)+l+1]]
-            for i in range(len(self.subsurface_parameters))
-        ])
-        l = 4
-        l4_subp_idx = np.hstack([
-            np.array(sub_p_idx)[[(i*5)+l-1, (i*5)+l]]
-            for i in range(len(self.subsurface_parameters))
-        ])
-        # Indices for 1st layer
-        # then for the 2nd layer (and so on...)
-        l0_idx = np.hstack([
-            #forc_idx,
-            surf_p_idx,
-            l0_subp_idx,
-            state_idx[[0, 1]]
-        ])
-        l1_idx = np.hstack([
-            #forc_idx,
-            surf_p_idx,
-            l1_subp_idx,
-            state_idx[[0, 1, 2]]
-        ])
-        l2_idx = np.hstack([
-            #forc_idx,
-            surf_p_idx,
-            l2_subp_idx,
-            state_idx[[1, 2, 3]]
-        ])
-        l3_idx = np.hstack([
-            #forc_idx,
-            surf_p_idx,
-            l3_subp_idx,
-            state_idx[[2, 3, 4]]
-        ])
-        l4_idx = np.hstack([
-            forc_idx,
-            surf_p_idx,
-            l4_subp_idx,
-            state_idx[[3, 4]]
-        ])
-        feature_indexers = [l0_idx, l1_idx, l2_idx, l3_idx, l4_idx]
-        feature_indexers = [x[~np.isnan(x)] for x in feature_indexers]
-        return feature_indexers
-
-    def configure_loss(self, loss_fun=F.mse_loss):
-        self.loss_fun = loss_fun
-
-    def forward(self, x):
-        """
-        Run the predict step. The data in this case will have
-        the format (channel, x, y) where channel will be indexed as
-
-         - 0:n_frc -> forcing data
-         - n_frc:n_par -> parameters
-         - n_par:n_lyr -> layers
-        """
-        all_y = []
-        for fi, sub_model in zip(self.feature_indexers, self.sub_models):
-            pred = sub_model(x[:, fi])
-            all_y.append(pred.squeeze(dim=1))
-        y_hat = torch.stack(all_y, axis=1)
-        return y_hat
-
-    def training_step(self, train_batch, train_batch_idx):
-        x, y = train_batch
-        y_hat = self(x)
-        loss = self.loss_fun(y_hat, y)
-        self.log('train_loss', loss)
-        return loss
-
-    def validation_step(self, val_batch, val_batch_idx):
-        x, y = val_batch
-        y_hat = self(x)
-        loss = self.loss_fun(y_hat, y)
-        self.log('val_loss', loss)
-        return loss
-
-    def configure_optimizers(self, opt=torch.optim.AdamW, **kwargs):
-        optimizer = opt(self.sub_models.parameters(), **kwargs)
-        scheduler = ExponentialLR(optimizer, gamma=0.9)
-        return [optimizer], [scheduler]
-
-
-@model_builder.register_emulator('MultiStepMultiLayerModel')
-class MultiStepMultiLayerModel(pl.LightningModule):
-    """
-    The MultiStepMultiLayerModel wraps around the FiveLayerModel but adds
-    time dependence into the simulation. This is done explicitly in the
-    `forward` method.
-
-    Parameters
-    ----------
-    forcing_vars: List[str]
-        The names of variables which represent meteorologic forcing which have
-        variability in dimensions (time, y, x)
-    surface_parameters: List[str]
-        The names of variables which represent parameter values which
-        only vary on the surface (top) layer, meaning variability in
-        the (y, x) dimensions only.
-    subsurface_parameters: List[str]
-        The names of variables which represent subsurface parameter values
-        which have 3d variability (z, y, x)
-    state_vars: List[str]
-        The names of variables which represent the subsurface state and have
-        the full 4d variability (time, z, y, x).
-    sequence_length: int
-        The number of timesteps which are simulated
-    activation: nn.Module
-        The activation function used for the `layer_model` (if applicable)
-    layer_model: nn.Module
-        The model structure that is used for each of the five discrete layers
-        Note this is just the reference to the class and not an instance of it.
-        Note this model must take in `in_vars`, `out_vars`, and
-        `activation` as constructor arguments.
-    layer_model_kwargs: dict
-        Arguments to pass into each sub-model for the discrete layers
-    probability_of_true_inputs: float
-        The probability to use to inject the true state value rather than
-        the one propagated forward in time during the time loop of the
-        `forward` method. When using this model in inference mode this needs
-        to be set to 0.0 to ensure that results are valid.
-    inject_noise: bool
-        Whether to inject noise into the inputs for the time looping. This
-        has been shown to improve stability during training as well for
-        unrolling the time loop over longer numbers of timesteps. If set to
-        `True` then some small random noise is added to inputs.
-    rng: callable
-        The function to use as the random number generator if `inject_noise` is
-        set to `True`
-    """
-
-    def __init__(
-        self,
-        forcing_vars,
-        surface_parameters,
-        subsurface_parameters,
-        state_vars,
-        out_vars,
-        sequence_length=7,
-        layer_model=UNet,
-        layer_model_kwargs={},
-        probability_of_true_inputs=0.0,
-        inject_noise=True,
-        corrector_mode=True,
-        rng=np.random,
-    ):
-        super().__init__()
-        self.save_hyperparameters(
-            'forcing_vars', 'surface_parameters',
-            'subsurface_parameters', 'state_vars', 'sequence_length',
-            'probability_of_true_inputs', 'inject_noise'
-        )
-        self.model = FiveLayerModel(
-            forcing_vars,
-            surface_parameters,
-            subsurface_parameters,
-            state_vars,
-            out_vars,
-            layer_model=layer_model,
-            layer_model_kwargs=layer_model_kwargs
-        )
-        self.corrector_mode = corrector_mode
-        self.sequence_length = sequence_length
-        self.probability_of_true_inputs = probability_of_true_inputs
-        self.inject_noise = inject_noise
-        print(self.corrector_mode, self.sequence_length, self.probability_of_true_inputs)
-        self.rng = rng
-
-    def forward(self, x):
-        # x has dims (batch, steps, features, height, width)
-        # So now xx has dims (batch, features, height, width)
-        xx = x[:, 0].clone()
-        # y_hat_sub stores each timestep prediction
-        y_hat_sub = []
-        pred = self.model(xx)#.squeeze()
-        #print(pred.shape, xx.shape)
-        if self.corrector_mode == True:
-            y_hat_sub.append(pred + xx[:, -5:, :, :])
-        else:
-            y_hat_sub.append(pred)
-        noise_scale = 1e-6
-        # Iterate through time
-        for i in range(1, self.sequence_length):
-            # Get the ith timestep
-            xx = x[:, i].clone()
-            # Now copy in the pressure prediction
-            # from the previous timestep
-            #replace=1
-            #if self.rng.random() > self.probability_of_true_inputs:
-            xx[:, -5:, :, :] = y_hat_sub[-1].squeeze().detach().clone()
-            #if self.inject_noise:
-            #    noise = torch.from_numpy(
-            #        self.rng.random(size=xx.shape).astype(np.float32)
-            #    ).to(self.device)
-            #    xx = xx + noise_scale * noise
-            pred = self.model(xx)#.squeeze()
-            if self.corrector_mode == True:
-                y_hat_sub.append(pred + xx[:, -5:, : , :])
-            else:
-                y_hat_sub.append(pred)
-        # Stack everything together to get dims
-        # (batch, steps, features, height, width)
-        return torch.stack(y_hat_sub, axis=1)
-
-    def training_step(self, train_batch, train_batch_idx):
-        x, y = train_batch
-        y_hat = self(x).squeeze()
-        #loss = self.loss_fun(y_hat[..., 2:-2, 2:-2], y[..., 2:-2, 2:-2])
-        loss = self.loss_fun(y_hat, y)
-        self.log('train_loss', loss)
-        return loss
-
-    def validation_step(self, val_batch, val_batch_idx):
-        x, y = val_batch
-        y_hat = self(x).squeeze()
-        loss = self.loss_fun(y_hat, y)
-        self.log('val_loss', loss)
-        return loss
-
-    def configure_optimizers(
-        self,
-        opt=torch.optim.AdamW,
-    ):
-        optimizer = opt(self.model.parameters(), lr=0.0001)
-        #scheduler = ExponentialLR(optimizer, gamma=0.9)
-        #scheduler = OneCycleLR(optimizer, max_lr=0.01,
-        #        total_steps=self.steps_per_epoch * self.max_epochs)
-        #return [optimizer], [scheduler]
-        return optimizer
-
-    def configure_loss(self, loss_fun=DWSE):
-        weights = torch.log(torch.arange(self.sequence_length) + 1.1)
-        weights = weights / torch.sum(weights)
-        #weights = weights.to(self.device)
         #loss_fun = partial(loss_fun, weights=weights)
         self.loss_fun = loss_fun
 

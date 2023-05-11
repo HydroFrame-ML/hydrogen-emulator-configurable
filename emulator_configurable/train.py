@@ -41,6 +41,8 @@ def train_model(
         targets=config['targets'],
         batch_size=config['batch_size'],
         num_workers=config['num_workers'],
+        shuffle=True,
+        selectors={}, # {'x': slice(0, 640), 'y': slice(0, 640)} #TODO: remove this
     )
 
     # Create the dataset object
@@ -56,7 +58,9 @@ def train_model(
         targets=config['targets'],
         batch_size=config['batch_size'],
         num_workers=config['num_workers'],
-        selectors={'time': slice(0, 370)}
+        shuffle=True,
+        #selectors={}, # {'x': slice(0, 640), 'y': slice(0, 640)} #TODO: remove this
+        selectors={}
     )
 
     model = ModelBuilder.build_emulator(
@@ -90,7 +94,9 @@ def train_model(
     elif resume_from_checkpoint:
         try:
             ckpt_path = hml.utils.find_resume_checkpoint(log_dir, run_name)
+            print('-------------------------------------------------------')
             print(f'Loading state dict from: {ckpt_path}')
+            print('-------------------------------------------------------')
         except:
             raise
             print('-------------------------------------------------------')
@@ -104,11 +110,13 @@ def train_model(
     trainer = pl.Trainer(
         accelerator='gpu',
         callbacks=callbacks,
-        precision=16,
+        precision=32,
         max_epochs=max_epochs,
         num_sanity_val_steps=0,
         log_every_n_steps=logging_frequency,
         logger=logger,
+        gradient_clip_val=0.5,
+        gradient_clip_algorithm="value"
     )
     trainer.fit(
         model=model,

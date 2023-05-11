@@ -4,6 +4,7 @@ import hydroml as hml
 import numpy as np
 import xarray as xr
 import xbatcher as xb
+import parflow as pf
 
 # WARNING: Hack for certain versions of torch/torchdata
 torch.utils.data.datapipes.utils.common._check_lambda_fn = None
@@ -13,15 +14,16 @@ from torchdata.datapipes.iter import IterDataPipe
 from torchdata.datapipes import functional_datapipe
 from torch.utils.data import DataLoader
 
+
 def slices_to_icoords(selector):
     return {k: np.arange(v.start, v.stop, v.step)
             for k, v in selector.items()}
 
+
 def create_batch_generator(
-    files, iselectors, var_list,
-    input_dims, **kwargs
+    files, input_dims, iselectors={}, **kwargs
 ):
-    ds = open_files(files, iselectors, var_list)
+    ds = open_files(files, iselectors)
     dims = dict(ds.dims)
     shape = tuple(dims.values())
     ds = xr.DataArray(np.empty(shape), dims=dims)
@@ -30,18 +32,22 @@ def create_batch_generator(
 
 
 def estimate_xbatcher_pipe_size(
-    files, iselectors, var_list,
+    files, iselectors,
     input_dims, **kwargs
 ):
     bgen = create_batch_generator(
-        files, iselectors, var_list,
-        input_dims, **kwargs
+        files, iselectors=iselectors,
+        input_dims=input_dims, **kwargs
     )
     return len(bgen)
 
 
-def open_files(files, iselectors, var_list):
+def open_files(files, iselectors, var_list=None, load=False):
     ds = xr.open_mfdataset(files, engine='zarr', compat='override', coords='minimal')
+    ds = ds.assign_coords({
+        'x': np.arange(len(ds['x'])),
+        'y': np.arange(len(ds['y']))
+    })
     train_ds = ds.isel(time=slice(1, -1))
     depth_varying_params = ['van_genuchten_alpha',  'van_genuchten_n',  'porosity',  'permeability']
     for zlevel in range(5):
@@ -49,7 +55,14 @@ def open_files(files, iselectors, var_list):
         train_ds[f'pressure_next_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(2, None)).drop('time')
         for v in depth_varying_params:
             train_ds[f'{v}_{zlevel}'] = ds[v].isel(z=zlevel)
-    return train_ds.chunk({'time': 24, 'z': 1}).isel(**iselectors)[var_list]
+    train_ds[f'swe_next'] = ds['swe'].isel(time=slice(2, None)).drop('time')
+    train_ds[f'et_next'] = ds['et'].isel(time=slice(2, None)).drop('time')
+    train_ds = train_ds.chunk({'time': 24, 'z': 1}).isel(**iselectors)
+    if var_list:
+        train_ds = train_ds[var_list]
+    if load:
+        train_ds = train_ds.load()
+    return train_ds
 
 
 @functional_datapipe("xbatcher")
@@ -71,19 +84,20 @@ class XbatcherDataPipe(IterDataPipe):
 
 
 class OpenDatasetPipe(IterDataPipe):
-    def __init__(self, file_list, var_list, iselectors={}, nthreads=8):
+    def __init__(self, file_list, var_list=None, iselectors={}, nthreads=8, load=False):
         super().__init__()
         self.file_list = file_list
         self.var_list = var_list
         self.iselectors = iselectors
         self.nthreads = nthreads
         self.ds = None
+        self.load = load
 
     def per_worker_init(self):
         from multiprocessing.pool import ThreadPool
         import dask
         dask.config.set(pool=ThreadPool(self.nthreads))
-        self.ds = open_files(self.file_list, self.iselectors, self.var_list)
+        self.ds = open_files(self.file_list, self.iselectors, self.var_list, load=self.load)
 
     def __iter__(self):
         # Call this only when we enter the iterator, ensuring
@@ -91,10 +105,31 @@ class OpenDatasetPipe(IterDataPipe):
         if not self.ds: self.per_worker_init()
         yield self.ds
 
+def add_feature_txt(
+    batch, 
+    file='/hydrodata/PFCLM/CONUS1_baseline/other_domain_files/CONUS.pitfill.txt', 
+    name='elevation'
+):
+    data = np.loadtxt(file, skiprows=1).reshape(1888, 3342)
+    data = xr.DataArray(data, dims=('y', 'x'))
+    batch[name] = data.isel(x=slice(0, len(batch['x'])), y=slice(0, len(batch['y'])))
+    return batch
+
+def add_feature_pfb(
+    batch, 
+    file='/home/ab6361/hydrogen_workspace/data/Frac_dist_100_withfilter.pfb',
+    name='frac_dist'
+):
+    data = pf.read_pfb(file).squeeze()
+    data = xr.DataArray(data, dims=('y', 'x'))
+    batch[name] = data.isel(x=slice(0, len(batch['x'])), y=slice(0, len(batch['y'])))
+    return batch
 
 def select_vars(batch, variables):
-    return batch[variables].drop_vars(batch.coords)
+    return batch[variables]
 
+def drop_coords(batch):
+    return batch.drop_vars(batch.coords)
 
 def transform(batch, scalers):
     dims_and_coords = set(batch.dims).union(set(batch.coords))
@@ -123,8 +158,7 @@ def augment(batch):
 
 
 def load(batch):
-    return batch.compute()#scheduler='threading')
-
+    return batch.compute()
 
 def split_and_convert(
     batch,
@@ -143,7 +177,8 @@ def split_and_convert(
     try:
         params = batch[lp].isel(time=[0]).to_array().transpose(*dims)
     except:
-        params = batch[lp].expand_dims({'time': 1}).isel(time=[0]).to_array().transpose(*dims)
+        params = batch[lp].expand_dims({'time': 1}).isel(time=[0]).to_array()
+        params = params.transpose(*dims)
     state = batch[ls].isel(time=[0]).to_array().transpose(*dims)
     target = batch[lt].to_array().transpose(*dims)
 
@@ -176,6 +211,8 @@ def create_new_loader(
     batch_size,
     num_workers,
     input_overlap=None,
+    return_partial=False,
+    augment=False,
     shuffle=True,
     selectors={},
     dtype=torch.float32,
@@ -187,13 +224,14 @@ def create_new_loader(
     input_dims = {'time': nt, 'y': ny, 'x': nx}
     # FIXME: Hard coded for now
     if not input_overlap:
-        input_overlap = {'time': nt//4, 'y': ny//3, 'x': nx//3}
+        input_overlap = {'time': (3 * nt)//4, 'y': ny//3, 'x': nx//3}
+
     number_batches = estimate_xbatcher_pipe_size(
         files=files,
         iselectors=selectors,
-        var_list=forcings+parameters+states+targets,
         input_dims=input_dims,
         input_overlap=input_overlap,
+        return_partial=return_partial,
         preload_batch=False
     )
 
@@ -201,6 +239,7 @@ def create_new_loader(
     sel_vars = partial(select_vars, variables=forcings+parameters+states+targets)
     batch_nt = partial(batch_time, nt=nt)
     transform_fn = partial(transform, scalers=scalers)
+
     convert = partial(
         split_and_convert,
         layer_parameters=parameters,
@@ -212,29 +251,28 @@ def create_new_loader(
 
     pipe = OpenDatasetPipe(
         dataset_files,
-        forcings+parameters+states+targets,
         iselectors=selectors
     )
+    pipe = pipe.map(add_feature_txt)
+    pipe = pipe.map(add_feature_pfb)
+    pipe = pipe.map(sel_vars)
     pipe = pipe.xbatcher(
         input_dims=input_dims,
         input_overlap=input_overlap,
         number_batches=number_batches,
         preload_batch=False,
+        return_partial=return_partial,
         shuffle=shuffle,
     )
-    #pipe = pipe.sharding_filter()
-    # steps_per_epoch = len(pipe)
-    pipe = pipe.map(sel_vars)
-    # pipe = pipe.map(load)
+    pipe = pipe.sharding_filter()
+    pipe = pipe.map(drop_coords)
     pipe = pipe.batch(batch_size)
     pipe = pipe.map(load_in_parallel)
     pipe = pipe.map(concat_batch)
-    pipe = pipe.map(augment)
+    if augment:
+        pipe = pipe.map(augment)
     pipe = pipe.map(transform_fn)
     pipe = pipe.map(convert)
-    # pipe = pipe.batch(batch_size)
-    # pipe = pipe.map(torch_concat)
-    # from torch.utils.data.backward_compatibility import worker_init_fn
     dl = DataLoader(
         pipe,
         batch_size=None,
@@ -242,6 +280,5 @@ def create_new_loader(
         pin_memory=pin_memory,
         persistent_workers=persistent_workers,
         shuffle=False,
-        # worker_init_fn=worker_init_fn,
     )
-    return dl# , steps_per_epoch
+    return dl
