@@ -6,4 +6,5 @@ xarray
 dask[diagnostics]
 bottleneck
 mlflow
+xbatcher
 git+https://github.com/HydroFrame-ML/hydrogen-hydroml
