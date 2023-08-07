@@ -15,6 +15,15 @@ import torch.nn as nn
 import torch.nn.functional as F
 from . import model_builder
 
+class LayerNorm2D(nn.LayerNorm):
+    def __init__(self, num_channels, eps=1e-6, affine=True):
+        super().__init__(num_channels, eps=eps, elementwise_affine=affine)
+
+    def forward(self, x):
+        return F.layer_norm(
+            x.permute(0, 2, 3, 1), self.normalized_shape, self.weight, self.bias, self.eps
+        ).permute(0, 3, 1, 2)
+
 
 @model_builder.register_layer('ActionSTLSTMCell')
 class ActionSTLSTMCell(nn.Module):
@@ -24,11 +33,26 @@ class ActionSTLSTMCell(nn.Module):
         self.num_hidden = num_hidden
         self.padding = filter_size // 2
         self._forget_bias = 1.0
-        self.conv_x = nn.Conv2d(in_channel,     num_hidden * 7, filter_size, stride, self.padding, padding_mode='reflect')
-        self.conv_a = nn.Conv2d(action_channel, num_hidden * 4, filter_size, stride, self.padding, padding_mode='reflect')
-        self.conv_h = nn.Conv2d(num_hidden,     num_hidden * 4, filter_size, stride, self.padding, padding_mode='reflect')
-        self.conv_m = nn.Conv2d(num_hidden,     num_hidden * 3, filter_size, stride, self.padding, padding_mode='reflect')
-        self.conv_o = nn.Conv2d(num_hidden * 2, num_hidden,     filter_size, stride, self.padding, padding_mode='reflect')
+        self.conv_x = nn.Sequential(
+            nn.Conv2d(in_channel, num_hidden * 7, filter_size, stride, self.padding, padding_mode='reflect'),
+            LayerNorm2D(num_hidden * 7)
+        )
+        self.conv_a = nn.Sequential(
+            nn.Conv2d(action_channel, num_hidden * 4, filter_size, stride, self.padding, padding_mode='reflect'),
+            LayerNorm2D(num_hidden * 4)
+        )
+        self.conv_h = nn.Sequential(
+            nn.Conv2d(num_hidden, num_hidden * 4, filter_size, stride, self.padding, padding_mode='reflect'),
+            LayerNorm2D(num_hidden * 4)
+        )
+        self.conv_m = nn.Sequential(
+            nn.Conv2d(num_hidden, num_hidden * 3, filter_size, stride, self.padding, padding_mode='reflect'),
+            LayerNorm2D(num_hidden * 3)
+        )
+        self.conv_o = nn.Sequential(
+            nn.Conv2d(num_hidden * 2, num_hidden,     filter_size, stride, self.padding, padding_mode='reflect'),
+            LayerNorm2D(num_hidden)
+        )
         self.conv_last = nn.Conv2d(num_hidden * 2, num_hidden, kernel_size=1, stride=1, padding=0)
 
     def forward(self, x_t, a_t, h_t, c_t, m_t):
@@ -110,7 +134,6 @@ class ForcedSTRNN(pl.LightningModule):
         self.memory_encoder = nn.Conv2d(
             self.init_cond_channel, num_hidden[0], kernel_size=1, bias=True
         )
-        #  Should we encode different layers separately?
         self.cell_encoder = nn.Conv2d(
             self.static_channel, sum(num_hidden), kernel_size=1, bias=True
         )
@@ -164,7 +187,7 @@ class ForcedSTRNN(pl.LightningModule):
                 delta_c_list[i] = self.update_state(dc)
                 delta_m_list[i] = self.update_state(dm)
 
-            x = self.conv_last(h_t[-1])# + x
+            x = self.conv_last(h_t[-1]) + x
             next_frames.append(x)
 
             # decoupling loss
@@ -174,6 +197,10 @@ class ForcedSTRNN(pl.LightningModule):
         self.decouple_loss = torch.mean(torch.stack(decouple_loss, dim=0))
         # Stack to: [batch, length, channel, height, width]
         next_frames = torch.stack(next_frames, dim=1)
+        #next_frames = torch.clamp(
+        #    torch.stack(next_frames, dim=1)
+        #    -10, 10
+        #)
         return next_frames
 
     def training_step(self, train_batch, train_batch_idx):
@@ -193,14 +220,14 @@ class ForcedSTRNN(pl.LightningModule):
     def configure_optimizers(
         self,
         opt=torch.optim.AdamW,
-        lr=1e-3,
+        lr=1e-4,
     ):
         optimizer = opt(self.parameters(), lr=lr, betas=[0.85, 0.95])
-        #total_epochs = self.trainer.max_epochs
-        #steps = 45_000
-        #scheduler = OneCycleLR(optimizer, max_lr=lr, total_steps=total_epochs * steps)
-        #scheduler = {"scheduler": scheduler, "interval" : "step"}
-        #return [optimizer], [scheduler]
+        # total_epochs = self.trainer.max_epochs
+        # steps = 10_000
+        # scheduler = OneCycleLR(optimizer, max_lr=lr, total_steps=total_epochs * steps)
+        # scheduler = {"scheduler": scheduler, "interval" : "step"}
+        # return [optimizer], [scheduler]
         return optimizer
 
     #def configure_loss(self, loss_fun=F.mse_loss):
@@ -489,7 +516,8 @@ class ConvBlock(nn.Module):
             self.in_channels,
             self.out_channels,
             kernel_size=self.kernel_size,
-            padding=self.padding
+            padding=self.padding,
+            padding_mode='reflect'
         )
 
     def forward(self, x):
@@ -506,121 +534,35 @@ class ResidualBlock(nn.Module):
         out_channels,
         kernel_size,
         activation,
-        depth,
     ):
         super().__init__()
         self.in_channels = in_channels
         self.out_channels = out_channels
+        self.hidden_channels = hidden_channels
         self.kernel_size = kernel_size
         self.activation = activation()
-        self.depth = depth
-        self.conv_block = [
-            ConvBlock(
-                in_channels,
-                hidden_channels,
-                kernel_size,
-                activation
-            )
-        ]
-        for i in range(1, self.depth-1):
-            self.conv_block.append(
-                ConvBlock(
-                    hidden_channels,
-                    hidden_channels,
-                    kernel_size,
-                    activation
-                )
-            )
-        self.conv_block.append(
-            ConvBlock(
-                hidden_channels,
-                out_channels,
-                kernel_size,
-                nn.Identity
-            )
+        self.depthwise_conv = nn.Conv2d(
+            self.in_channels,
+            self.hidden_channels,
+            kernel_size=self.kernel_size,
+            padding=int(self.kernel_size / 2),
+            padding_mode='reflect',
+            groups=self.in_channels
         )
-        self.conv_block = nn.ModuleList(self.conv_block)
+        self.layer_norm = LayerNorm2D(self.hidden_channels)
+        self.pointwise_conv = nn.Conv2d(
+            self.hidden_channels,
+            self.out_channels,
+            kernel_size=1
+        )
 
     def forward(self, x):
         identity = x
-        for l in self.conv_block:
-            x = l(x)
-        out = self.activation(x + identity)
+        out = self.depthwise_conv(x)
+        out = self.layer_norm(out)
+        out = self.pointwise_conv(out)
+        out = self.activation(out + identity)
         return out
-
-
-@model_builder.register_model('BasicConvNet')
-class BasicConvNet(pl.LightningModule):
-
-    def __init__(
-        self,
-        in_vars=[''],
-        out_vars=[''],
-        hidden_dim=64,
-        kernel_size=5,
-        depth=3,
-        activation=nn.Mish,
-    ):
-        super().__init__()
-        self.input_channels = len(in_vars)
-        self.hidden_dim = hidden_dim
-        self.output_channels = len(out_vars)
-        self.kernel_size = kernel_size
-        self.depth = depth
-        self.activation = activation
-
-        self.layers = [
-            ConvBlock(
-                self.input_channels,
-                self.hidden_dim,
-                self.kernel_size,
-                self.activation
-            )
-        ]
-        for i in range(1, self.depth-1):
-            self.layers.append(
-                ConvBlock(
-                    self.hidden_dim,
-                    self.hidden_dim,
-                    self.kernel_size,
-                    self.activation
-                )
-            )
-        self.layers.append(
-            ConvBlock(
-                self.hidden_dim,
-                self.output_channels,
-                self.kernel_size,
-                nn.Identity
-            )
-        )
-        self.layers = nn.ModuleList(self.layers)
-
-    def forward(self, x):
-        for l in self.layers:
-            x = l(x)
-        return x
-
-    def configure_optimizers(self, opt=torch.optim.Adam, **kwargs):
-        optimizer = opt(self.parameters(), **kwargs)
-        return optimizer
-
-    def configure_loss(self, loss_fun=F.mse_loss):
-        self.loss_fun = loss_fun
-
-    def training_step(self, train_batch, train_batch_idx):
-        x, y = train_batch
-        y_hat = self.forward(x).squeeze()
-        loss = self.loss_fun(y_hat, y)
-        self.log('train_loss', loss)
-        return loss
-
-    def validation_step(self, val_batch, val_batch_idx):
-        x, y = val_batch
-        y_hat = self.forward(x).squeeze()
-        loss = self.loss_fun(y_hat, y)
-        self.log('val_loss', loss)
-        return loss
 
 
 @model_builder.register_model('BasicResNet')
@@ -632,17 +574,15 @@ class BasicResNet(pl.LightningModule):
         out_channels,
         hidden_dim=64,
         kernel_size=5,
-        res_block_depth=1,
-        total_depth=1,
-        activation=nn.Mish,
+        depth=1,
+        activation=nn.GELU,
     ):
         super().__init__()
         self.input_channels = in_channels
         self.hidden_dim = hidden_dim
         self.output_channels = out_channels
         self.kernel_size = kernel_size
-        self.depth = total_depth
-        self.res_block_depth = res_block_depth
+        self.depth = depth
         self.activation = activation
 
         self.layers = [
@@ -661,14 +601,13 @@ class BasicResNet(pl.LightningModule):
                     self.hidden_dim,
                     self.kernel_size,
                     self.activation,
-                    self.res_block_depth,
                 )
             )
         self.layers.append(
             ConvBlock(
                 self.hidden_dim,
                 self.output_channels,
-                self.kernel_size,
+                1,
                 nn.Identity
             )
         )
@@ -757,18 +696,98 @@ class MultiStepModel(pl.LightningModule):
     def configure_optimizers(
         self,
         opt=torch.optim.AdamW,
-        lr=1e-6,
+        lr=1e-3,
     ):
-        optimizer = opt(self.parameters(), lr=lr)
-        scheduler = OneCycleLR(optimizer, max_lr=lr, total_steps=self.trainer.estimated_stepping_batches)
+        optimizer = opt(self.parameters(), lr=lr, betas=[0.85, 0.95])
+        total_epochs = self.trainer.max_epochs
+        steps = 45_000 // 4 # Acount for larger batch size
+        scheduler = OneCycleLR(optimizer, max_lr=lr, total_steps=total_epochs * steps)
         scheduler = {"scheduler": scheduler, "interval" : "step"}
         return [optimizer], [scheduler]
+        #return optimizer
 
-    def configure_loss(self, loss_fun=DWSE):
+    #def configure_loss(self, loss_fun=DWSE):
+    def configure_loss(self, loss_fun=F.mse_loss):
         #weights = torch.log(torch.arange(self.sequence_length) + 1.1)
         #weights = weights / torch.sum(weights)
         ##weights = weights.to(self.device)
         #loss_fun = partial(loss_fun, weights=weights)
         self.loss_fun = loss_fun
 
+
+@model_builder.register_emulator('LaggedMultiStepModel')
+class LaggedMultiStepModel(pl.LightningModule):
+    def __init__(
+        self,
+        in_channel,
+        out_channel,
+        layer_model=UNet,
+        layer_model_kwargs={},
+    ):
+        super().__init__()
+        self.in_channel = in_channel
+        self.out_channel = out_channel
+        self.model = layer_model(
+            self.in_channel,
+            self.out_channel,
+            **layer_model_kwargs
+        )
+
+    def forward(self, forcings, init_cond, static_inputs):
+        batch, timesteps, channels, height, width = forcings.shape
+
+        next_frames = []
+
+        # NOTE: init_cond and static_inputs have length=1 on time
+        x0 = init_cond[:, 0]
+        x1 = init_cond[:, 0]
+        s = static_inputs[:, 0]
+        for t in range(timesteps):
+            f_t = forcings[:, t]
+            inp = torch.cat([f_t, s, x0, x1], dim=1)
+            out = torch.tanh(self.model(inp))
+            x0 = x1
+            x1 = out + x1
+            next_frames.append(x1)
+        next_frames = torch.stack(next_frames, dim=1)
+        return next_frames
+
+    def training_step(self, train_batch, train_batch_idx):
+        forcing, state, params, target = train_batch
+        y_hat = self(forcing, state, params).squeeze()
+        loss = self.loss_fun(y_hat, target)
+        if torch.isnan(loss):
+            print(torch.isnan(target).sum(), torch.isnan(y_hat).sum())
+            raise ValueError('Loss went nan')
+
+        self.log('train_loss', loss)
+        return loss
+
+    def validation_step(self, val_batch, val_batch_idx):
+        forcing, state, params, target = val_batch
+        y_hat = self(forcing, state, params).squeeze()
+        loss = self.loss_fun(y_hat, target)
+        self.log('val_loss', loss)
+        return loss
+
+    def configure_optimizers(
+        self,
+        opt=torch.optim.AdamW,
+        lr=1e-3,
+    ):
+        optimizer = opt(self.parameters(), lr=lr, betas=[0.85, 0.95])
+        total_epochs = self.trainer.max_epochs
+        steps = 45_000 // 4 # Acount for larger batch size
+        scheduler = OneCycleLR(optimizer, max_lr=lr, total_steps=total_epochs * steps)
+        scheduler = {"scheduler": scheduler, "interval" : "step"}
+        return [optimizer], [scheduler]
+        #return optimizer
+
+    #def configure_loss(self, loss_fun=F.mse_loss):
+    def configure_loss(self, loss_fun=DWSE):
+        #weights = torch.log(torch.arange(self.sequence_length) + 1.1)
+        #weights = weights / torch.sum(weights)
+        ##weights = weights.to(self.device)
+        #loss_fun = partial(loss_fun, weights=weights)
+        self.loss_fun = loss_fun
 

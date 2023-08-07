@@ -26,8 +26,8 @@ def create_batch_generator(
     ds = open_files(files, iselectors)
     dims = dict(ds.dims)
     shape = tuple(dims.values())
-    ds = xr.DataArray(np.empty(shape), dims=dims)
-    bgen = xb.BatchGenerator(ds, input_dims, **kwargs)
+    dummy_ds = xr.DataArray(np.empty(shape), dims=dims, coords=ds.coords)
+    bgen = xb.BatchGenerator(dummy_ds, input_dims, **kwargs)
     return bgen
 
 
@@ -49,14 +49,17 @@ def open_files(files, iselectors, var_list=None, load=False):
         'y': np.arange(len(ds['y']))
     })
     train_ds = ds.isel(time=slice(1, -1))
+    train_ds[f'swe_next'] = ds['swe'].isel(time=slice(2, None)).drop('time')
+    train_ds[f'et_next'] = ds['et'].isel(time=slice(2, None)).drop('time')
+    train_ds[f'cbrt_water'] = np.cbrt(train_ds['APCP'] + train_ds['melt'])
+
     depth_varying_params = ['van_genuchten_alpha',  'van_genuchten_n',  'porosity',  'permeability']
     for zlevel in range(5):
         train_ds[f'pressure_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(1, -1)).drop('time')
         train_ds[f'pressure_next_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(2, None)).drop('time')
+        train_ds[f'pressure_prev_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(0, -2)).drop('time')
         for v in depth_varying_params:
             train_ds[f'{v}_{zlevel}'] = ds[v].isel(z=zlevel)
-    train_ds[f'swe_next'] = ds['swe'].isel(time=slice(2, None)).drop('time')
-    train_ds[f'et_next'] = ds['et'].isel(time=slice(2, None)).drop('time')
     train_ds = train_ds.chunk({'time': 24, 'z': 1}).isel(**iselectors)
     if var_list:
         train_ds = train_ds[var_list]
@@ -84,13 +87,18 @@ class XbatcherDataPipe(IterDataPipe):
 
 
 class OpenDatasetPipe(IterDataPipe):
-    def __init__(self, file_list, var_list=None, iselectors={}, nthreads=8, load=False):
+    def __init__(self, files_or_ds, var_list=None, iselectors={}, nthreads=8, load=False):
         super().__init__()
-        self.file_list = file_list
+        if isinstance(files_or_ds, xr.Dataset):
+            self.ds = files_or_ds[var_list].isel(**iselectors)
+            if load:
+                self.ds = self.ds.load()
+        else:
+            self.file_list = files_or_ds
+            self.ds = None
         self.var_list = var_list
         self.iselectors = iselectors
         self.nthreads = nthreads
-        self.ds = None
         self.load = load
 
     def per_worker_init(self):
@@ -106,8 +114,8 @@ class OpenDatasetPipe(IterDataPipe):
         yield self.ds
 
 def add_feature_txt(
-    batch, 
-    file='/hydrodata/PFCLM/CONUS1_baseline/other_domain_files/CONUS.pitfill.txt', 
+    batch,
+    file='/hydrodata/PFCLM/CONUS1_baseline/other_domain_files/CONUS.pitfill.txt',
     name='elevation'
 ):
     data = np.loadtxt(file, skiprows=1).reshape(1888, 3342)
@@ -116,7 +124,7 @@ def add_feature_txt(
     return batch
 
 def add_feature_pfb(
-    batch, 
+    batch,
     file='/home/ab6361/hydrogen_workspace/data/Frac_dist_100_withfilter.pfb',
     name='frac_dist'
 ):
@@ -221,10 +229,13 @@ def create_new_loader(
 ):
     dataset_files = files
     scalers = hml.scalers.load_scalers(scaler_file)
+    scalers['cbrt_water'] = hml.scalers.StandardScaler(0, 1)
+    for i in range(5):
+        scalers[f'pressure_prev_{i}'] = scalers[f'pressure_{i}']
     input_dims = {'time': nt, 'y': ny, 'x': nx}
     # FIXME: Hard coded for now
     if not input_overlap:
-        input_overlap = {'time': (3 * nt)//4, 'y': ny//3, 'x': nx//3}
+        input_overlap = {'time': nt//4, 'y': ny//3, 'x': nx//3}
 
     number_batches = estimate_xbatcher_pipe_size(
         files=files,

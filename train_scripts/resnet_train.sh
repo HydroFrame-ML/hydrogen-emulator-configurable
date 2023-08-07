@@ -5,43 +5,72 @@
 #
 #SBATCH --cpus-per-task=26
 #SBATCH --gres=gpu:1
-#SBATCH --time=04:00:00
+#SBATCH --time=14:00:00
 #SBATCH --mem=128GB
 
-source /home/ab6361/.bashrc
-source activate all
-
 TODAY=`date +"%Y-%m-%d"`
-VARIANT="configurable_7day_1M"
+VARIANT="4l_256hd"
+
 CONFIG=$(cat <<- EOM
 {
-    "scaler_file": "/home/ab6361/hydrogen_workspace/model_staging/configurable/conus1.scalers",
     "resume_from_checkpoint": true,
+    "train_dataset_files": [
+        "/hydrodata/PFCLM/CONUS1_baseline/simulations/daily/zarr/conus1_2003_preprocessed.zarr",
+        "/hydrodata/PFCLM/CONUS1_baseline/simulations/daily/zarr/conus1_2004_preprocessed.zarr"
+    ],
+    "valid_dataset_files": [
+        "/hydrodata/PFCLM/CONUS1_baseline/simulations/daily/zarr/conus1_2005_preprocessed.zarr"
+    ],
+    "scaler_file": "/home/ab6361/hydrogen_workspace/data/new_scalers_may8.scalers",
     "log_dir": "/home/ab6361/hydrogen_workspace/artifacts/configurable_logs",
-    "run_name": "resnet_train_$VARIANT",
-    "forcing_vars": ["APCP", "melt", "et"],
-    "surface_parameters": ["topographic_index"],
-    "subsurface_parameters": ["porosity", "permeability", "van_genuchten_alpha", "van_genuchten_n"],
-    "state_vars": ["pressure"],
-    "out_vars": ["pressure_next"],
-    "sequence_length": 7,
-    "patch_size": 56,
-    "patch_stride": 28,
-    "batch_size": 32,
-    "num_dl_workers": 24,
+    "run_name": "resnet_$VARIANT",
+    "forcings": ["APCP", "Temp_max", "Temp_min", "melt", "et"],
+    "parameters": [
+        "topographic_index",
+        "elevation",
+        "frac_dist",
+        "permeability_0",
+        "permeability_1",
+        "permeability_2",
+        "porosity_0",
+        "porosity_1",
+        "porosity_2",
+        "van_genuchten_alpha_0",
+        "van_genuchten_alpha_1",
+        "van_genuchten_alpha_2",
+        "van_genuchten_n_0",
+        "van_genuchten_n_1",
+        "van_genuchten_n_2"
+    ],
+    "states": [
+        "pressure_0",
+        "pressure_1",
+        "pressure_2",
+        "pressure_3",
+        "pressure_4"
+    ],
+    "targets": [
+        "pressure_next_0",
+        "pressure_next_1",
+        "pressure_next_2",
+        "pressure_next_3",
+        "pressure_next_4"
+    ],
+    "sequence_length": 14,
+    "patch_size": 48,
+    "batch_size": 16,
+    "num_workers": 8,
     "max_epochs": 1,
-    "logging_frequency": 100,
-    "train_samples_per_epoch": 500000,
-    "valid_samples_per_epoch":  500,
+    "logging_frequency": 10,
     "model_def": {
-        "type": "MultiStepMultiLayerModel",
-        "model_config": {
+        "type": "MultiStepModel",
+        "config": {
             "layer_model": "BasicResNet",
-            "probability_of_true_inputs": 0.05,
+            "in_channel":25,
+            "out_channel": 5,
             "layer_model_kwargs": {
-                "hidden_dim": 64,
-                "total_depth": 1,
-                "res_block_depth": 2
+                "hidden_dim": 256,
+                "depth": 4
             }
         }
     }

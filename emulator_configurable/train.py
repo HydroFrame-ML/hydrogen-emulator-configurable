@@ -46,22 +46,22 @@ def train_model(
     )
 
     # Create the dataset object
-    valid_dl = create_new_loader(
-        files=config['valid_dataset_files'],
-        scaler_file=config['scaler_file'],
-        nt=config['sequence_length'],
-        ny=config['patch_size'],
-        nx=config['patch_size'],
-        forcings=config['forcings'],
-        parameters=config['parameters'],
-        states=config['states'],
-        targets=config['targets'],
-        batch_size=config['batch_size'],
-        num_workers=config['num_workers'],
-        shuffle=True,
-        #selectors={}, # {'x': slice(0, 640), 'y': slice(0, 640)} #TODO: remove this
-        selectors={}
-    )
+    # valid_dl = create_new_loader(
+    #     files=config['valid_dataset_files'],
+    #     scaler_file=config['scaler_file'],
+    #     nt=config['sequence_length'],
+    #     ny=config['patch_size'],
+    #     nx=config['patch_size'],
+    #     forcings=config['forcings'],
+    #     parameters=config['parameters'],
+    #     states=config['states'],
+    #     targets=config['targets'],
+    #     batch_size=config['batch_size'],
+    #     num_workers=config['num_workers'],
+    #     shuffle=True,
+    #     #selectors={}, # {'x': slice(0, 640), 'y': slice(0, 640)} #TODO: remove this
+    #     selectors={}
+    # )
 
     model = ModelBuilder.build_emulator(
         type=config['model_def']['type'],
@@ -115,12 +115,12 @@ def train_model(
         num_sanity_val_steps=0,
         log_every_n_steps=logging_frequency,
         logger=logger,
-        gradient_clip_val=0.5,
+        gradient_clip_val=1.5,
         gradient_clip_algorithm="value"
     )
     trainer.fit(
         model=model,
         train_dataloaders=train_dl,
-        val_dataloaders=valid_dl,
+        #val_dataloaders=valid_dl,
         ckpt_path=ckpt_path
     )

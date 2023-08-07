@@ -4,14 +4,9 @@ import pandas as pd
 import xarray as xr
 import hydroml as hml
 from torch import nn
-from .models import (
-    BaseLSTM,
-    UNet,
-    BasicConvNet,
-)
 from glob import glob
 from tqdm import tqdm
-from .dataset import RecurrentDataset
+from .datapipes import create_new_loader, create_batch_generator
 from .model_builder import ModelBuilder
 from hydroml import scalers
 from hydroml.process_heads import (
@@ -120,9 +115,10 @@ def run_surface_forecast(ds, config):
     #pred_ds = pred_ds.assign_coords(ds.coords)
     return pred_ds
 
-
 def run_subsurface_forecast(ds, config):
     """
+        TODO: FIXME: OUTDATED DOCSTRING
+
     Run only the subsurface portion of the forecast. This
     encompasses only processes which would be simulated by ParFlow
 
@@ -153,36 +149,14 @@ def run_subsurface_forecast(ds, config):
     # Pull some config
     conus_scalers = scalers.load_scalers(config['scaler_file'])
     patch_sizes = {'x': len(ds['x']), 'y': len(ds['y'])}
-    in_vars = config['forcing_vars']
-    surface_parameters = config['surface_parameters']
-    subsurface_parameters = config['subsurface_parameters']
-    parameters = surface_parameters+subsurface_parameters
-    state_vars = config['state_vars']
-    out_vars = config['out_vars']
+    forcings = config['forcings']
+    parameters = config['parameters']
+    states = config['states']
+    targets = config['targets']
     seq_len = config['forecast_length']
-
-    # Create the dataset
-    dataset = RecurrentDataset(
-        lambda: ds ,
-        static_inputs=parameters,
-        forcing_inputs=in_vars,
-        state_inputs=state_vars,
-        dynamic_outputs=out_vars,
-        scalers=conus_scalers,
-        sequence_length=1, #seq_len,
-        patch_sizes=patch_sizes,
-    )
-    dataset.per_worker_init()
+    nx, ny = len(ds['x']), len(ds['y'])
 
     # Create model and process functions
-    model_config = config.get('model_def', {}).get('model_config', {})
-    model_config['forcing_vars'] = config['forcing_vars']
-    model_config['surface_parameters'] = config['surface_parameters']
-    model_config['subsurface_parameters'] = config['subsurface_parameters']
-    model_config['state_vars'] = config['state_vars']
-    model_config['out_vars'] = config['out_vars']
-    model_config['sequence_length'] = 1
-
     model = ModelBuilder.build_emulator(
         emulator_type=config['model_def']['type'],
         model_config=config['model_def']['model_config']
@@ -211,77 +185,83 @@ def run_subsurface_forecast(ds, config):
     ds['melt'] = melt
     if 'time' not in ds['pressure'].dims:
         ds['pressure'] = ds['pressure'].expand_dims({'time': seq_len})
-    #ds['topographic_index'] = xr.broadcast(ds['z'], ds['topographic_index'])[1]
-    alpha = torch.tensor(ds['van_genuchten_alpha'].values)
-    n = torch.tensor(ds['van_genuchten_n'].values)
+
+    vgn_a = torch.tensor(ds['van_genuchten_alpha'].values)
+    vgn_n = torch.tensor(ds['van_genuchten_n'].values)
     slope_x = torch.tensor(ds['slope_x'].values)
     slope_y = torch.tensor(ds['slope_y'].values)
+
+    #TODO: FIXME: These shouldn't be hardcoded
     mannings = 0.0 * torch.clone(slope_x) + 2.0 #FIXME: CHECK THIS VALUE!!
+    dz = torch.tensor([100.0, 1.0, 0.6, 0.3, 0.1])
 
     # Run the forecast
-    pressure = []
-    saturation = []
-    water_table_depth = []
-    streamflow = []
+    all_pres = []
+    all_sat = []
+    all_wtd = []
+    all_flow = []
+
     single_run = False
     if 'member' not in ds:
         single_run = True
         ds = ds.expand_dims({'member': 1})
+
     with torch.no_grad():
         for m in range(len(ds['member'])):
-            pressure_times = []
-            for t in tqdm(range(config['forecast_length'])):
-                dsx = ds.isel(member=m, time=[t])
-                x = dataset._get_inputs(dsx)
-                # Newaxis represents batch size
-                if t > 0:
-                    x[..., -5:, :, :] = pred.clone()
-                x = x[np.newaxis, ...].to(DEVICE)
-                pred = model(x)
-                pressure_times.append(pred.cpu().numpy().squeeze())
-            pressure.append(np.stack(pressure_times))
-    pressure = np.stack(pressure)
-    pressure = xr.DataArray(pressure, dims=('member', 'time', 'z', 'y', 'x'))
-    pressure = conus_scalers['pressure'].inverse_transform(pressure)
-    pressure = pressure.transpose('member', 'time', 'z', 'y', 'x')
-    pred_ds['pressure'] = pressure
-    #TODO: FIXME: This shouldn't be hardcoded
-    dz = torch.tensor([100.0, 1.0, 0.6, 0.3, 0.1])
+            dataset = datapipes.create_new_loader(
+                ds.isel(member=m), config['scaler_file'],
+                seq_len, ny, nx,
+                forcings, parameters, states, targets,
+                batch_size=1, num_workers=1,
+                input_overlap=None, return_partial=True,
+                augment=False, shuffle=False,
+            )
+            # Run the emulator
+            for (forcing, state, params, target) in dataset:
+                pres_m = model(forcing, state, params)
+                # Need to convert to dataset to inverse transform
+                # then convert back to tensor so it can be used
+                # to calculate the derived quantities, not ideal :(
+                pres_m = conus_scalers['pressure'].inverse_transform(
+                    xr.Dataset(pres_m.cpu().numpy(), dims=['time', 'z', 'y', 'x'])
+                ).values
+                pres_m = torch.tensor(pres_m)
+                all_pres.append(pres_m.cpu().numpy())
 
-    # Calculate derived quantities
-    for m in range(len(ds['member'])):
-        pressure_tensor = torch.tensor(
-            pressure.isel(member=m).values
-        )
-        saturation_tensor = torch.stack([sat_fun(
-            pressure_tensor[i], alpha, n
-        ) for i in range(config['forecast_length'])])
-        water_table_depth_tensor = torch.stack([wtd_fun(
-            pressure_tensor[i],
-            saturation_tensor[i],
-            dz
-        ) for i in range(config['forecast_length'])])
-        streamflow_tensor = torch.stack([flow_fun(
-            pressure_tensor[i],
-            slope_x.squeeze(),
-            slope_y.squeeze(),
-            mannings.squeeze(),
-            1000.0, #TODO: FIXME: These shouldn't be hardcoded
-            1000.0, #TODO: FIXME: These shouldn't be hardcoded
-            flow_method='OverlandFlow',
-        ) for i in range(config['forecast_length'])])
-        saturation.append(saturation_tensor.cpu().numpy())
-        water_table_depth.append(water_table_depth_tensor.cpu().numpy())
-        streamflow.append(streamflow_tensor.cpu().numpy())
+            # Calculate derived quantities
+            sat = sat_fun.forward(pres_m, vgn_a, vgn_n)
+            wtd = wtd_fun.forward(
+                pres_m, sat, dz, depth_ax=1
+            )
+            flow = flow_fun(
+                pres_m,
+                slope_x.squeeze(),
+                slope_y.squeeze(),
+                mannings.squeeze(),
+                1000.0, #TODO: FIXME: These shouldn't be hardcoded
+                1000.0, #TODO: FIXME: These shouldn't be hardcoded
+                flow_method='OverlandFlow',
+            )
+            # Save the results
+            all_sat.append(sat.cpu().numpy())
+            all_wtd.append(wtd.cpu().numpy())
+            all_flow.append(flow.cpu().numpy())
 
-    # Put the data together and return it
+    # Put the results into a dataset
+    pred_ds['pressure'] = xr.DataArray(
+        np.stack(all_pres), dims=('member', 'time', 'z', 'y', 'x')
+    )
     pred_ds['saturation'] = xr.DataArray(
-        np.stack(saturation), dims=['member', 'time', 'z', 'y', 'x'])
-    pred_ds['water_table_depth'] = xr.DataArray(
-        np.stack(water_table_depth), dims=['member', 'time', 'y', 'x'])
-    pred_ds['streamflow'] = xr.DataArray(
-        np.stack(streamflow), dims=['member', 'time', 'y', 'x'])
+        np.stack(all_sat), dims=('member', 'time', 'z', 'y', 'x')
+    )
+    pred_ds['wtd'] = xr.DataArray(
+        np.stack(all_wtd), dims=('member', 'time', 'y', 'x')
+    )
+    pred_ds['flow'] = xr.DataArray(
+        np.stack(all_flow), dims=('member', 'time', 'y', 'x')
+    )
     pred_ds['soil_moisture'] = pred_ds['saturation'] * ds['porosity']
+    pred_ds = pred_ds.assign_coords(ds.coords)
     return pred_ds.squeeze()
 
 
