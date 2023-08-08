@@ -21,9 +21,12 @@ def slices_to_icoords(selector):
 
 
 def create_batch_generator(
-    files, input_dims, iselectors={}, **kwargs
+    files_or_ds, input_dims, iselectors={}, **kwargs
 ):
-    ds = open_files(files, iselectors)
+    if isinstance(files_or_ds, xr.Dataset):
+        ds = files_or_ds.isel(**iselectors)
+    else:
+        ds = open_files(files_or_ds, iselectors)
     dims = dict(ds.dims)
     shape = tuple(dims.values())
     dummy_ds = xr.DataArray(np.empty(shape), dims=dims, coords=ds.coords)
@@ -90,7 +93,9 @@ class OpenDatasetPipe(IterDataPipe):
     def __init__(self, files_or_ds, var_list=None, iselectors={}, nthreads=8, load=False):
         super().__init__()
         if isinstance(files_or_ds, xr.Dataset):
-            self.ds = files_or_ds[var_list].isel(**iselectors)
+            self.ds = files_or_ds.isel(**iselectors)
+            if var_list:
+                ds = ds[var_list]
             if load:
                 self.ds = self.ds.load()
         else:
@@ -234,7 +239,7 @@ def create_new_loader(
         scalers[f'pressure_prev_{i}'] = scalers[f'pressure_{i}']
     input_dims = {'time': nt, 'y': ny, 'x': nx}
     # FIXME: Hard coded for now
-    if not input_overlap:
+    if input_overlap is None:
         input_overlap = {'time': nt//4, 'y': ny//3, 'x': nx//3}
 
     number_batches = estimate_xbatcher_pipe_size(

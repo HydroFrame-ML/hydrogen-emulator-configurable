@@ -158,8 +158,8 @@ def run_subsurface_forecast(ds, config):
 
     # Create model and process functions
     model = ModelBuilder.build_emulator(
-        emulator_type=config['model_def']['type'],
-        model_config=config['model_def']['model_config']
+        type=config['model_def']['type'],
+        config=config['model_def']['config']
     )
     if 'model_state_file' in config:
         weights = torch.load(config['model_state_file'], map_location=DEVICE)
@@ -208,22 +208,23 @@ def run_subsurface_forecast(ds, config):
 
     with torch.no_grad():
         for m in range(len(ds['member'])):
-            dataset = datapipes.create_new_loader(
+            dataset = create_new_loader(
                 ds.isel(member=m), config['scaler_file'],
                 seq_len, ny, nx,
                 forcings, parameters, states, targets,
                 batch_size=1, num_workers=1,
-                input_overlap=None, return_partial=True,
+                input_overlap={}, return_partial=True,
                 augment=False, shuffle=False,
             )
             # Run the emulator
-            for (forcing, state, params, target) in dataset:
+            for batch in dataset:
+                forcing, state, params, _ = hml.utils.sequence_to_device(batch, DEVICE)
                 pres_m = model(forcing, state, params)
                 # Need to convert to dataset to inverse transform
                 # then convert back to tensor so it can be used
                 # to calculate the derived quantities, not ideal :(
                 pres_m = conus_scalers['pressure'].inverse_transform(
-                    xr.Dataset(pres_m.cpu().numpy(), dims=['time', 'z', 'y', 'x'])
+                    xr.DataArray(pres_m.cpu().numpy().squeeze(), dims=['time', 'z', 'y', 'x'])
                 ).values
                 pres_m = torch.tensor(pres_m)
                 all_pres.append(pres_m.cpu().numpy())
@@ -233,15 +234,15 @@ def run_subsurface_forecast(ds, config):
             wtd = wtd_fun.forward(
                 pres_m, sat, dz, depth_ax=1
             )
-            flow = flow_fun(
-                pres_m,
+            flow = torch.stack([flow_fun(
+                pres_m[i],
                 slope_x.squeeze(),
                 slope_y.squeeze(),
                 mannings.squeeze(),
                 1000.0, #TODO: FIXME: These shouldn't be hardcoded
                 1000.0, #TODO: FIXME: These shouldn't be hardcoded
                 flow_method='OverlandFlow',
-            )
+            ) for i in range(pres_m.shape[0])])
             # Save the results
             all_sat.append(sat.cpu().numpy())
             all_wtd.append(wtd.cpu().numpy())
@@ -254,10 +255,10 @@ def run_subsurface_forecast(ds, config):
     pred_ds['saturation'] = xr.DataArray(
         np.stack(all_sat), dims=('member', 'time', 'z', 'y', 'x')
     )
-    pred_ds['wtd'] = xr.DataArray(
+    pred_ds['water_table_depth'] = xr.DataArray(
         np.stack(all_wtd), dims=('member', 'time', 'y', 'x')
     )
-    pred_ds['flow'] = xr.DataArray(
+    pred_ds['streamflow'] = xr.DataArray(
         np.stack(all_flow), dims=('member', 'time', 'y', 'x')
     )
     pred_ds['soil_moisture'] = pred_ds['saturation'] * ds['porosity']
@@ -284,6 +285,14 @@ def run_forecast(
         The subsurface forecast config. See the `run_subsurface_forecast`
         documentation for the specs of what goes in here.
     """
+    depth_varying_params = ['van_genuchten_alpha',  'van_genuchten_n',  'porosity',  'permeability']
+    for zlevel in range(5):
+        ds[f'pressure_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(1, -1)).drop('time')
+        ds[f'pressure_next_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(2, None)).drop('time')
+        ds[f'pressure_prev_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(0, -2)).drop('time')
+        for v in depth_varying_params:
+            ds[f'{v}_{zlevel}'] = ds[v].isel(z=zlevel)
+
     surf_ds = run_surface_forecast(ds, land_surface_config)
     ds = ds.isel(time=slice(-land_surface_config['forecast_length'], None))
     ds['et'] = surf_ds['et']
