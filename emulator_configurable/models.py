@@ -220,15 +220,16 @@ class ForcedSTRNN(pl.LightningModule):
     def configure_optimizers(
         self,
         opt=torch.optim.AdamW,
-        lr=1e-4,
+        lr=3e-4,
     ):
-        optimizer = opt(self.parameters(), lr=lr, betas=[0.85, 0.95])
-        # total_epochs = self.trainer.max_epochs
-        # steps = 10_000
-        # scheduler = OneCycleLR(optimizer, max_lr=lr, total_steps=total_epochs * steps)
-        # scheduler = {"scheduler": scheduler, "interval" : "step"}
-        # return [optimizer], [scheduler]
-        return optimizer
+        optimizer = opt(self.parameters(), lr=lr, betas=[0.8, 0.95])
+        total_epochs = self.trainer.max_epochs
+        steps = 14_340 # 28_350
+        #return optimizer
+        
+        scheduler = OneCycleLR(optimizer, max_lr=lr, total_steps=total_epochs * steps)
+        scheduler = {"scheduler": scheduler, "interval" : "step"}
+        return [optimizer], [scheduler]
 
     #def configure_loss(self, loss_fun=F.mse_loss):
     def configure_loss(self, loss_fun=DWSE):

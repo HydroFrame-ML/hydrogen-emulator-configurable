@@ -54,7 +54,21 @@ def open_files(files, iselectors, var_list=None, load=False):
     train_ds = ds.isel(time=slice(1, -1))
     train_ds[f'swe_next'] = ds['swe'].isel(time=slice(2, None)).drop('time')
     train_ds[f'et_next'] = ds['et'].isel(time=slice(2, None)).drop('time')
+    
+    train_ds[f'swe_prev'] = ds['et'].isel(time=slice(0, -2)).drop('time')
+    train_ds[f'et_prev'] = ds['swe'].isel(time=slice(0, -2)).drop('time')
+
     train_ds[f'cbrt_water'] = np.cbrt(train_ds['APCP'] + train_ds['melt'])
+    train_ds['Temp_mean'] = (train_ds['Temp_max'] + train_ds['Temp_min']) / 2
+    Tfreeze = 273.15
+    train_ds['rain_frac'] = (0.5 * (train_ds['Temp_mean'] - Tfreeze)).clip(0,1)
+    train_ds['rainfall'] = train_ds['APCP'] * train_ds['rain_frac']
+
+    dswe = ds['swe'].diff('time')
+    melt = -1 * dswe.where(dswe < 0, other=0.0)
+    melt = xr.concat([xr.zeros_like(ds['swe'].isel(time=[0])), melt], dim='time')
+    melt.name = 'melt'
+    ds['melt'] = melt
 
     depth_varying_params = ['van_genuchten_alpha',  'van_genuchten_n',  'porosity',  'permeability']
     for zlevel in range(5):
@@ -234,9 +248,12 @@ def create_new_loader(
 ):
     dataset_files = files
     scalers = hml.scalers.load_scalers(scaler_file)
-    scalers['cbrt_water'] = hml.scalers.StandardScaler(0, 1)
+    scalers['rainfall'] = scalers['APCP']
     for i in range(5):
         scalers[f'pressure_prev_{i}'] = scalers[f'pressure_{i}']
+    scalers[f'swe_prev'] = scalers[f'swe']
+    scalers[f'et_prev'] = scalers[f'et']
+
     input_dims = {'time': nt, 'y': ny, 'x': nx}
     # FIXME: Hard coded for now
     if input_overlap is None:
@@ -253,7 +270,6 @@ def create_new_loader(
 
     # Partial function application
     sel_vars = partial(select_vars, variables=forcings+parameters+states+targets)
-    batch_nt = partial(batch_time, nt=nt)
     transform_fn = partial(transform, scalers=scalers)
 
     convert = partial(
