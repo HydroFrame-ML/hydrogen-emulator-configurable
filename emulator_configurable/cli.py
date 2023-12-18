@@ -19,20 +19,13 @@ def train_surface(
     config: dict,
 ):
     mlflow.set_tracking_uri(f'file:{config["log_dir"]}')
-    base_data_gen = emulator.utils.zarr_data_gen
-    train_files = [
+    config['train_files'] = [
         '/scratch/ab6361/pfclm_conus1_zarr/conus1_2003_preprocessed.zarr',
         '/scratch/ab6361/pfclm_conus1_zarr/conus1_2004_preprocessed.zarr',
     ]
-    config['train_data_gen_function'] = partial(
-        base_data_gen, files=train_files
-    )
-    valid_files = [
+    config['valid_files'] = [
         '/scratch/ab6361/pfclm_conus1_zarr/conus1_2005_preprocessed.zarr',
     ]
-    config['valid_data_gen_function'] = partial(
-        base_data_gen, files=valid_files
-    )
     lr_monitor = LearningRateMonitor(
             logging_interval='step',
     )
@@ -44,29 +37,20 @@ def train_surface(
         monitor='train_loss'
     )
     config['callbacks'] = [metrics, checkpoint, lr_monitor]
-    scaler_file = config.pop('scaler_file')
-    config['scalers'] = scalers.load_scalers(scaler_file)
-    emulator.train.train_surface_model(config)
+    emulator.train.train_model(config)
 
 
 def train_subsurface(
     config: dict,
 ):
     mlflow.set_tracking_uri(f'file:{config["log_dir"]}')
-    base_data_gen = emulator.utils.zarr_data_gen
-    train_files = [
+    config['train_files'] = [
         '/scratch/ab6361/pfclm_conus1_zarr/conus1_2003_preprocessed.zarr',
         '/scratch/ab6361/pfclm_conus1_zarr/conus1_2004_preprocessed.zarr',
     ]
-    config['train_data_gen_function'] = partial(
-        base_data_gen, files=train_files
-    )
-    valid_files = [
+    config['valid_files'] = [
         '/scratch/ab6361/pfclm_conus1_zarr/conus1_2005_preprocessed.zarr',
     ]
-    config['valid_data_gen_function'] = partial(
-        base_data_gen, files=valid_files
-    )
     lr_monitor = LearningRateMonitor(
             logging_interval='step',
     )
@@ -78,9 +62,6 @@ def train_subsurface(
         monitor='train_loss'
     )
     config['callbacks'] = [metrics, checkpoint, lr_monitor]
-    scaler_file = config.pop('scaler_file')
-    config['scalers'] = scalers.load_scalers(scaler_file)
-    config['scalers']['pressure_next'] = config['scalers']['pressure']
     emulator.train.train_model(config)
 
 

@@ -1,19 +1,18 @@
 #!/bin/bash
 #
-#SBATCH --job-name=resnet
-#SBATCH --output=resnet.txt
+#SBATCH --job-name=fstrnn_train
+#SBATCH --output=fstrnn_train.txt
 #
-#SBATCH --cpus-per-task=26
+#SBATCH --cpus-per-task=48
 #SBATCH --gres=gpu:1
-#SBATCH --time=14:00:00
-#SBATCH --mem=128GB
+#SBATCH --time=36:00:00
+#SBATCH --mem=200GB
 
 TODAY=`date +"%Y-%m-%d"`
-VARIANT="4l_256hd"
-
+VARIANT="new_params_2l_64hd"
 CONFIG=$(cat <<- EOM
 {
-    "resume_from_checkpoint": true,
+    "resume_from_checkpoint": "/home/ab6361/hydrogen_workspace/notebooks_2023/forced_strnn_train_new_params_2l_64hd.pt",
     "train_dataset_files": [
         "/hydrodata/PFCLM/CONUS1_baseline/simulations/daily/zarr/conus1_2003_preprocessed.zarr",
         "/hydrodata/PFCLM/CONUS1_baseline/simulations/daily/zarr/conus1_2004_preprocessed.zarr"
@@ -23,7 +22,7 @@ CONFIG=$(cat <<- EOM
     ],
     "scaler_file": "/home/ab6361/hydrogen_workspace/data/new_scalers_may8.scalers",
     "log_dir": "/home/ab6361/hydrogen_workspace/artifacts/configurable_logs",
-    "run_name": "resnet_$VARIANT",
+    "run_name": "forced_strnn_train_$VARIANT",
     "forcings": ["APCP", "Temp_max", "Temp_min", "melt", "et"],
     "parameters": [
         "topographic_index",
@@ -63,19 +62,19 @@ CONFIG=$(cat <<- EOM
     "max_epochs": 1,
     "logging_frequency": 10,
     "model_def": {
-        "type": "MultiStepModel",
+        "type": "ForcedSTRNN",
         "config": {
-            "layer_model": "BasicResNet",
-            "in_channel":25,
+            "num_layers": 2,
+            "num_hidden": [64, 64],
+            "img_channel": 5,
             "out_channel": 5,
-            "layer_model_kwargs": {
-                "hidden_dim": 256,
-                "depth": 4
-            }
+            "act_channel": 5,
+            "init_cond_channel": 5,
+            "static_channel": 15
         }
     }
 }
 EOM
 )
-echo $CONFIG > resnet_config.json
-run_emulator --mode train --domain subsurface --config resnet_config.json
+echo $CONFIG > train_config.json
+run_emulator --mode train --domain subsurface --config train_config.json
