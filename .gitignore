@@ -1,0 +1,6 @@
+train_scripts/*.txt
+train_scripts/*.json
+train_scripts/*.ckpt
+.ipynb_checkpoints
+*egg-info
+*__pycache__

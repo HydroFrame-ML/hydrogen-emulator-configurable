@@ -111,6 +111,7 @@ def train_model(
     )
     checkpoint_dir = (f'{logger.save_dir}/{logger.experiment_id}'
                       f'/{logger.run_id}/checkpoints')
+    print(log_dir, run_name)
     hparams = {
         'checkpoint_dir': checkpoint_dir,
         'forcing_vars': forcing_vars,
@@ -136,9 +137,11 @@ def train_model(
     elif resume_from_checkpoint:
         try:
             ckpt_path = hml.utils.find_resume_checkpoint(log_dir, run_name)
+            print(f'Loading state dict from: {ckpt_path}')
         except:
+            raise
             print('-------------------------------------------------------')
-            print(f'Could not find checkpoint!!!')
+            print(f'Could not find checkpoint for {run_name}!!!')
             print('-------------------------------------------------------')
             ckpt_path = None
     else:
