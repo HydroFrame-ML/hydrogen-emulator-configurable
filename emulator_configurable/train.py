@@ -6,6 +6,7 @@ import xarray as xr
 import hydroml as hml
 from torch import nn
 import pytorch_lightning as pl
+import torch.nn.functional as F
 from glob import glob
 from .datapipes import create_new_loader
 from .dataset import RecurrentDataset, worker_init_fn
@@ -15,6 +16,7 @@ from hydroml.process_heads import (
     WaterTableDepthHead,
     OverlandFlowHead
 )
+from hydroml.loss import DWSE
 from torch.utils.data import DataLoader
 
 def train_model(
@@ -42,7 +44,7 @@ def train_model(
         batch_size=config['batch_size'],
         num_workers=config['num_workers'],
         shuffle=True,
-        selectors={}, # {'x': slice(0, 640), 'y': slice(0, 640)} #TODO: remove this
+        selectors={},
     )
 
     # Create the dataset object
@@ -67,6 +69,9 @@ def train_model(
         type=config['model_def']['type'],
         config=config['model_def']['config']
     )
+    model.learning_rate = config['learning_rate']
+    model.number_batches = train_dl.number_batches
+
     logger = pl.loggers.MLFlowLogger(
         experiment_name=run_name,
         tracking_uri=f'file:{log_dir}',
@@ -93,7 +98,8 @@ def train_model(
         ckpt_path = None
     elif resume_from_checkpoint:
         try:
-            ckpt_path = hml.utils.find_resume_checkpoint(log_dir, run_name)
+            #ckpt_path = hml.utils.find_resume_checkpoint(log_dir, run_name)
+            ckpt_path = hml.utils.find_last_checkpoint(log_dir, run_name)
             print('-------------------------------------------------------')
             print(f'Loading state dict from: {ckpt_path}')
             print('-------------------------------------------------------')
@@ -105,18 +111,21 @@ def train_model(
             ckpt_path = None
     else:
         ckpt_path = None
-    model.configure_loss()
+    if config['gradient_loss_penalty']:
+        model.configure_loss(loss_fun=DWSE)
+    else:
+        model.configure_loss(loss_fun=F.mse_loss)
 
     trainer = pl.Trainer(
         accelerator='gpu',
         callbacks=callbacks,
-        precision='bf16',
+        precision=config['precision'],
         max_epochs=max_epochs,
         num_sanity_val_steps=0,
         log_every_n_steps=logging_frequency,
         logger=logger,
         gradient_clip_val=1.5,
-        gradient_clip_algorithm="value"
+        gradient_clip_algorithm="norm"
     )
     trainer.fit(
         model=model,

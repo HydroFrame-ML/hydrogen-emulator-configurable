@@ -21,12 +21,12 @@ def slices_to_icoords(selector):
 
 
 def create_batch_generator(
-    files_or_ds, input_dims, iselectors={}, **kwargs
+    files_or_ds, input_dims, selectors={}, **kwargs
 ):
     if isinstance(files_or_ds, xr.Dataset):
-        ds = files_or_ds.isel(**iselectors)
+        ds = files_or_ds.isel(**selectors)
     else:
-        ds = open_files(files_or_ds, iselectors)
+        ds = open_files(files_or_ds, selectors)
     dims = dict(ds.dims)
     shape = tuple(dims.values())
     dummy_ds = xr.DataArray(np.empty(shape), dims=dims, coords=ds.coords)
@@ -35,40 +35,29 @@ def create_batch_generator(
 
 
 def estimate_xbatcher_pipe_size(
-    files, iselectors,
+    files, selectors,
     input_dims, **kwargs
 ):
     bgen = create_batch_generator(
-        files, iselectors=iselectors,
+        files, selectors=selectors,
         input_dims=input_dims, **kwargs
     )
     return len(bgen)
 
 
-def open_files(files, iselectors, var_list=None, load=False):
-    ds = xr.open_mfdataset(files, engine='zarr', compat='override', coords='minimal')
+def open_files(files, selectors, var_list=None, load=False):
+    ds = xr.open_mfdataset(files, engine='zarr', compat='override', coords='minimal').chunk({'time': 24})
     ds = ds.assign_coords({
         'x': np.arange(len(ds['x'])),
         'y': np.arange(len(ds['y']))
-    })
-    train_ds = ds.isel(time=slice(1, -1))
-    train_ds[f'swe_next'] = ds['swe'].isel(time=slice(2, None)).drop('time')
-    train_ds[f'et_next'] = ds['et'].isel(time=slice(2, None)).drop('time')
-    
-    train_ds[f'swe_prev'] = ds['et'].isel(time=slice(0, -2)).drop('time')
-    train_ds[f'et_prev'] = ds['swe'].isel(time=slice(0, -2)).drop('time')
-
-    train_ds[f'cbrt_water'] = np.cbrt(train_ds['APCP'] + train_ds['melt'])
-    train_ds['Temp_mean'] = (train_ds['Temp_max'] + train_ds['Temp_min']) / 2
-    Tfreeze = 273.15
-    train_ds['rain_frac'] = (0.5 * (train_ds['Temp_mean'] - Tfreeze)).clip(0,1)
-    train_ds['rainfall'] = train_ds['APCP'] * train_ds['rain_frac']
-
-    dswe = ds['swe'].diff('time')
-    melt = -1 * dswe.where(dswe < 0, other=0.0)
-    melt = xr.concat([xr.zeros_like(ds['swe'].isel(time=[0])), melt], dim='time')
-    melt.name = 'melt'
-    ds['melt'] = melt
+    }).isel(**selectors)
+    train_ds = ds
+    stack_vars = {
+        'van_genuchten_alpha': [f'van_genuchten_alpha_{i}' for i in range(5)],
+        'van_genuchten_n': [f'van_genuchten_n_{i}' for i in range(5)],
+    }
+    for k, v in stack_vars.items():
+        train_ds[k] = xr.concat([ds[i] for i in v], dim='z')
 
     depth_varying_params = ['van_genuchten_alpha',  'van_genuchten_n',  'porosity',  'permeability']
     for zlevel in range(5):
@@ -77,7 +66,7 @@ def open_files(files, iselectors, var_list=None, load=False):
         train_ds[f'pressure_prev_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(0, -2)).drop('time')
         for v in depth_varying_params:
             train_ds[f'{v}_{zlevel}'] = ds[v].isel(z=zlevel)
-    train_ds = train_ds.chunk({'time': 24, 'z': 1}).isel(**iselectors)
+
     if var_list:
         train_ds = train_ds[var_list]
     if load:
@@ -104,10 +93,10 @@ class XbatcherDataPipe(IterDataPipe):
 
 
 class OpenDatasetPipe(IterDataPipe):
-    def __init__(self, files_or_ds, var_list=None, iselectors={}, nthreads=8, load=False):
+    def __init__(self, files_or_ds, var_list=None, selectors={}, nthreads=8, load=False):
         super().__init__()
         if isinstance(files_or_ds, xr.Dataset):
-            self.ds = files_or_ds.isel(**iselectors)
+            self.ds = files_or_ds.isel(**selectors)
             if var_list:
                 ds = ds[var_list]
             if load:
@@ -116,7 +105,7 @@ class OpenDatasetPipe(IterDataPipe):
             self.file_list = files_or_ds
             self.ds = None
         self.var_list = var_list
-        self.iselectors = iselectors
+        self.selectors = selectors
         self.nthreads = nthreads
         self.load = load
 
@@ -124,13 +113,14 @@ class OpenDatasetPipe(IterDataPipe):
         from multiprocessing.pool import ThreadPool
         import dask
         dask.config.set(pool=ThreadPool(self.nthreads))
-        self.ds = open_files(self.file_list, self.iselectors, self.var_list, load=self.load)
+        self.ds = open_files(self.file_list, self.selectors, self.var_list, load=self.load)
 
     def __iter__(self):
         # Call this only when we enter the iterator, ensuring
         # every worker has it's own thread pool, hopefully
         if not self.ds: self.per_worker_init()
         yield self.ds
+
 
 def add_feature_txt(
     batch,
@@ -152,11 +142,14 @@ def add_feature_pfb(
     batch[name] = data.isel(x=slice(0, len(batch['x'])), y=slice(0, len(batch['y'])))
     return batch
 
+
 def select_vars(batch, variables):
     return batch[variables]
 
+
 def drop_coords(batch):
     return batch.drop_vars(batch.coords)
+
 
 def transform(batch, scalers):
     dims_and_coords = set(batch.dims).union(set(batch.coords))
@@ -172,9 +165,11 @@ def batch_time(batch, nt):
                  .drop('time')
                  .rename({'ts': 'time'}))
 
+
 def concat_batch(batch):
     batch = xr.concat(batch, dim='batch')
     return batch
+
 
 def augment(batch):
     if torch.rand(1) > 0.5:
@@ -186,6 +181,7 @@ def augment(batch):
 
 def load(batch):
     return batch.compute()
+
 
 def split_and_convert(
     batch,
@@ -215,6 +211,7 @@ def split_and_convert(
     target = torch.tensor(target.values).to(dtype)
     return forcing, state, params, target
 
+
 def torch_concat(batch):
     return [torch.cat(b) for b in batch]
 
@@ -224,6 +221,7 @@ def load_in_parallel(batch):
         return sample.load()
     batch = dask.compute([dask.delayed(_single_load)(sample) for sample in batch])[0]
     return batch
+
 
 def create_new_loader(
     files,
@@ -248,9 +246,13 @@ def create_new_loader(
 ):
     dataset_files = files
     scalers = hml.scalers.load_scalers(scaler_file)
+    scalers['cbrt_swe']      = scalers.get('cbrt_swe', hml.scalers.MinMaxScaler(0, 3))
+    scalers['cbrt_swe_prev'] = scalers['cbrt_swe']
+    scalers['cbrt_swe_next'] = scalers['cbrt_swe']
     scalers['rainfall'] = scalers['APCP']
     for i in range(5):
         scalers[f'pressure_prev_{i}'] = scalers[f'pressure_{i}']
+        scalers[f'pressure_next_{i}'] = scalers[f'pressure_{i}']
     scalers[f'swe_prev'] = scalers[f'swe']
     scalers[f'et_prev'] = scalers[f'et']
 
@@ -260,8 +262,8 @@ def create_new_loader(
         input_overlap = {'time': nt//4, 'y': ny//3, 'x': nx//3}
 
     number_batches = estimate_xbatcher_pipe_size(
-        files=files,
-        iselectors=selectors,
+        files=dataset_files,
+        selectors=selectors,
         input_dims=input_dims,
         input_overlap=input_overlap,
         return_partial=return_partial,
@@ -283,10 +285,8 @@ def create_new_loader(
 
     pipe = OpenDatasetPipe(
         dataset_files,
-        iselectors=selectors
+        selectors=selectors
     )
-    pipe = pipe.map(add_feature_txt)
-    pipe = pipe.map(add_feature_pfb)
     pipe = pipe.map(sel_vars)
     pipe = pipe.xbatcher(
         input_dims=input_dims,
@@ -305,6 +305,7 @@ def create_new_loader(
         pipe = pipe.map(augment)
     pipe = pipe.map(transform_fn)
     pipe = pipe.map(convert)
+    pipe.number_batches = number_batches
     dl = DataLoader(
         pipe,
         batch_size=None,
@@ -313,4 +314,5 @@ def create_new_loader(
         persistent_workers=persistent_workers,
         shuffle=False,
     )
+    dl.number_batches = number_batches
     return dl

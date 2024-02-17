@@ -19,16 +19,7 @@ def train_surface(
     config: dict,
 ):
     mlflow.set_tracking_uri(f'file:{config["log_dir"]}')
-    config['train_files'] = [
-        '/scratch/ab6361/pfclm_conus1_zarr/conus1_2003_preprocessed.zarr',
-        '/scratch/ab6361/pfclm_conus1_zarr/conus1_2004_preprocessed.zarr',
-    ]
-    config['valid_files'] = [
-        '/scratch/ab6361/pfclm_conus1_zarr/conus1_2005_preprocessed.zarr',
-    ]
-    lr_monitor = LearningRateMonitor(
-            logging_interval='step',
-    )
+    lr_monitor = LearningRateMonitor(logging_interval='step')
     metrics = MetricsCallback()
     checkpoint = ModelCheckpoint(
         save_top_k=5,
@@ -44,16 +35,7 @@ def train_subsurface(
     config: dict,
 ):
     mlflow.set_tracking_uri(f'file:{config["log_dir"]}')
-    config['train_files'] = [
-        '/scratch/ab6361/pfclm_conus1_zarr/conus1_2003_preprocessed.zarr',
-        '/scratch/ab6361/pfclm_conus1_zarr/conus1_2004_preprocessed.zarr',
-    ]
-    config['valid_files'] = [
-        '/scratch/ab6361/pfclm_conus1_zarr/conus1_2005_preprocessed.zarr',
-    ]
-    lr_monitor = LearningRateMonitor(
-            logging_interval='step',
-    )
+    lr_monitor = LearningRateMonitor(logging_interval='step')
     metrics = MetricsCallback()
     checkpoint = ModelCheckpoint(
         save_top_k=5,
@@ -61,14 +43,12 @@ def train_subsurface(
         every_n_epochs=None,
         monitor='train_loss'
     )
-    config['callbacks'] = [metrics, checkpoint, lr_monitor]
+    epoch_checkpoint = ModelCheckpoint(
+        every_n_epochs=1,
+    )
+    config['callbacks'] = [metrics, checkpoint, epoch_checkpoint, lr_monitor]
     emulator.train.train_model(config)
 
-
-def train_single_layer(
-    config: dict,
-):
-    raise NotImplementedError()
 
 def train_combined(
     config: dict,
@@ -113,7 +93,6 @@ def predict_subsurface(
     return pred_ds
 
 
-
 def predict_combined(
     config: dict,
 ):
@@ -145,8 +124,6 @@ def main():
         train_surface(config)
     elif mode == 'train' and domain == 'subsurface':
         train_subsurface(config)
-    elif mode == 'train' and domain == 'layer':
-        train_single_layer(config)
     elif mode == 'train' and domain == 'combined':
         train_combined(config)
     elif mode == 'predict' and domain == 'surface':

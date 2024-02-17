@@ -39,7 +39,7 @@ class ModelFactory:
         return message
 
     def build_emulator(self, type, config):
-        layer_model = config.pop('layer_model', None)
+        layer_model = config.get('layer_model', None)
         if layer_model:
             config['layer_model'] = self.registry['model'][layer_model]
         ModelClass = self.registry['emulator'][type]
