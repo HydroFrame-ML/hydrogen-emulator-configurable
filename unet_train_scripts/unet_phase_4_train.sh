@@ -77,5 +77,5 @@ CONFIG=$(cat <<- EOM
 EOM
 )
 echo $CONFIG > config_unet_phase_4.json
-run_emulator --mode train --domain subsurface --config config_unet_phase_4.json
+parflow_emulator --mode train --domain subsurface --config config_unet_phase_4.json
 

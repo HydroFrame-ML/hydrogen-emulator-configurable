@@ -104,7 +104,7 @@ def train_model(
     else:
         model.configure_loss(loss_fun=F.mse_loss)
 
-    # Configure the trainer. By default, we use the GPU, but this can be
+    # Configure the trainer. 
     trainer = pl.Trainer(
         accelerator=device,
         callbacks=callbacks,

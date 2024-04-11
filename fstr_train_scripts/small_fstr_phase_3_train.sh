@@ -78,4 +78,4 @@ CONFIG=$(cat <<- EOM
 EOM
 )
 echo $CONFIG > config_small_fstr_phase_3.json
-run_emulator --mode train --domain subsurface --config config_small_fstr_phase_3.json
+parflow_emulator --mode train --domain subsurface --config config_small_fstr_phase_3.json
