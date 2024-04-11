@@ -2,14 +2,14 @@ import torch
 import numpy as np
 import pandas as pd
 import xarray as xr
-import hydroml as hml
+import scalers
 from torch import nn
 from glob import glob
 from tqdm import tqdm
+from .utils import sequence_to_device, load_state_dict_from_checkpoint
 from .datapipes import create_new_loader, create_batch_generator
 from .model_builder import ModelBuilder
-from hydroml import scalers
-from hydroml.process_heads import (
+from .process_heads import (
     SaturationHead,
     WaterTableDepthHead,
     OverlandFlowHead
@@ -19,101 +19,8 @@ DEVICE = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
 def run_surface_forecast(ds, config):
-    """
-    Run only the surface portion of the forecast. This
-    encompasses only processes which would be simulated by CLM
+    raise NotImplementedError("This function is not implemented yet")
 
-    Parameters
-    ----------
-    ds: xr.Dataset
-        The input data. This should at least have `seqence_length` elements
-        in the time dimension as well as the variables required in the
-        `parameters`, `in_vas`, and `state_vars` sections of the configuration.
-    config: dict
-        A configuration for the surface forecast. It's specs are:
-        {
-          'scaler_file': path to the scalers used during training,
-          'parameters': parameter values used as inputs,
-          'in_vars': input forcing or other time dependent variables,
-          'state_vars': input state variables from the subsurface,
-          'out_vars': the variables that the forecast is expect to produce,
-          'sequence_length': the length of time in the input data
-          'forecast_length': the length of time that the forecast produces
-          'nlayers': number of hidden layers in the forecast model,
-          'hidden_dim': the dimension of the hidden layers in the model,
-          'model_state_file': the path to the saved, trained model
-        }
-
-    Returns
-    -------
-    The xarray dataset with the added `out_vars` with `forecast_length`
-    elements in the time dimension
-    """
-
-    # Pull some config
-    conus_scalers = scalers.load_scalers(config['scaler_file'])
-    patch_sizes = {'x': len(ds['x']), 'y': len(ds['y'])}
-    in_vars = config['forcing_vars']
-    surface_parameters = config['surface_parameters']
-    subsurface_parameters = config['subsurface_parameters']
-    parameters = surface_parameters+subsurface_parameters
-    state_vars = config['state_vars']
-    out_vars = config['out_vars']
-    seq_len = config['sequence_length']
-
-    # Create the dataset
-    dataset = RecurrentDataset(
-        lambda: ds ,
-        static_inputs=parameters,
-        forcing_inputs=in_vars,
-        state_inputs=state_vars,
-        dynamic_outputs=out_vars,
-        scalers=conus_scalers,
-        sequence_length=seq_len,
-        patch_sizes=patch_sizes,
-    )
-    dataset.per_worker_init()
-
-    # Create the model
-    model_config = config.get('model_def', {}).get('model_config', {})
-    model_config['forcing_vars'] = config['forcing_vars']
-    model_config['surface_parameters'] = config['surface_parameters']
-    model_config['subsurface_parameters'] = config['subsurface_parameters']
-    model_config['state_vars'] = config['state_vars']
-    model_config['out_vars'] = config['out_vars']
-    model_config['sequence_length'] = config['forecast_length']
-
-    model = ModelBuilder.build_emulator(
-        emulator_type=config['model_def']['type'],
-        model_config=config['model_def']['model_config']
-    )
-    weights = torch.load(config['model_state_file'], map_location=DEVICE)
-    model.load_state_dict(weights)
-    model = model.to(DEVICE)
-    model.eval();
-
-    # Run the forecast
-    out_vars = {v: [] for v in config['out_vars']}
-    for m in range(len(ds['member'])):
-        x = dataset._get_inputs(ds.isel(member=m))
-        # Switch dims to be (y, x, time, var)
-        xx = x.permute(2,3,0,1).to(DEVICE)
-        with torch.no_grad():
-            yy = torch.stack([model(xxx) for xxx in xx])
-        # Switch dims back to (time, var, y, x)
-        yy = yy.permute(3,2,0,1).cpu().numpy()
-        for i, v in enumerate(out_vars):
-            out_vars[v].append(conus_scalers[v].inverse_transform(yy[i]))
-
-    # Assemble and return the forecast
-    pred_ds = xr.Dataset()# ds.isel(time=slice(-config['forecast_length'], None))
-    for v in config['out_vars']:
-        pred_ds[v] = xr.DataArray(
-            np.stack(out_vars[v]), dims=['member', 'time', 'y', 'x'], name=v)
-    if 'swe' in pred_ds:
-        pred_ds['swe'] = pred_ds['swe'].where(pred_ds['swe'] > 0, other=0.0)
-    #pred_ds = pred_ds.assign_coords(ds.coords)
-    return pred_ds
 
 def run_subsurface_forecast(ds, config):
     """
@@ -162,6 +69,8 @@ def run_subsurface_forecast(ds, config):
         type=config['model_def']['type'],
         config=config['model_def']['config']
     )
+
+    # TODO: Need to find out how to load the saved checkpoint from the mlflow server
     if 'model_state_file' in config['model_def']:
         weights = torch.load(config['model_def']['model_state_file'], map_location=DEVICE)
     elif 'run_name' in config['model_def']:
@@ -169,7 +78,7 @@ def run_subsurface_forecast(ds, config):
             'You put the run name, but not the location!')
         log_dir = config['log_dir']
         run_name = config['run_name']
-        weights = hml.utils.load_state_dict_from_checkpoint(log_dir, run_name)
+        weights = load_state_dict_from_checkpoint(log_dir, run_name)
     model.load_state_dict(weights)
     model = model.to(torch.float32).to(DEVICE)
     model.eval();
@@ -221,7 +130,7 @@ def run_subsurface_forecast(ds, config):
         }
 
         # Run the model
-        forcing, state, params, _ = hml.utils.sequence_to_device(batch, DEVICE)
+        forcing, state, params, _ = sequence_to_device(batch, DEVICE)
         with torch.no_grad():
             pres_tensor = model(forcing, state, params)
 

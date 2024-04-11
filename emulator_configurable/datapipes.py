@@ -1,6 +1,6 @@
 import dask
 import torch
-import hydroml as hml
+import scalers
 import numpy as np
 import xarray as xr
 import xbatcher as xb
@@ -59,14 +59,6 @@ def open_files(files, selectors, var_list=None, load=False):
     for k, v in stack_vars.items():
         train_ds[k] = xr.concat([ds[i] for i in v], dim='z')
 
-    depth_varying_params = ['van_genuchten_alpha',  'van_genuchten_n',  'porosity',  'permeability']
-    for zlevel in range(5):
-        train_ds[f'pressure_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(1, -1)).drop('time')
-        train_ds[f'pressure_next_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(2, None)).drop('time')
-        train_ds[f'pressure_prev_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(0, -2)).drop('time')
-        for v in depth_varying_params:
-            train_ds[f'{v}_{zlevel}'] = ds[v].isel(z=zlevel)
-
     if var_list:
         train_ds = train_ds[var_list]
     if load:
@@ -89,7 +81,8 @@ class XbatcherDataPipe(IterDataPipe):
                 yield batch
 
     def __len__(self):
-        return self.number_batches
+        bgens = [xb.BatchGenerator(ds, self.input_dims, **self.kwargs) for ds in self.parent_pipe]
+        return sum(len(bgen) for bgen in bgens)
 
 
 class OpenDatasetPipe(IterDataPipe):
@@ -245,8 +238,8 @@ def create_new_loader(
     persistent_workers=True,
 ):
     dataset_files = files
-    scalers = hml.scalers.load_scalers(scaler_file)
-    scalers['cbrt_swe']      = scalers.get('cbrt_swe', hml.scalers.MinMaxScaler(0, 3))
+    scalers = scalers.load_scalers(scaler_file)
+    scalers['cbrt_swe']      = scalers.get('cbrt_swe', scalers.MinMaxScaler(0, 3))
     scalers['cbrt_swe_prev'] = scalers['cbrt_swe']
     scalers['cbrt_swe_next'] = scalers['cbrt_swe']
     scalers['rainfall'] = scalers['APCP']
@@ -257,7 +250,6 @@ def create_new_loader(
     scalers[f'et_prev'] = scalers[f'et']
 
     input_dims = {'time': nt, 'y': ny, 'x': nx}
-    # FIXME: Hard coded for now
     if input_overlap is None:
         input_overlap = {'time': nt//4, 'y': ny//3, 'x': nx//3}
 

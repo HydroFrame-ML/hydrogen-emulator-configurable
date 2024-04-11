@@ -1,4 +1,3 @@
-from hydroml.loss import MWSE, DWSE
 from functools import partial
 from torch import nn
 from torch.optim.lr_scheduler import ExponentialLR, OneCycleLR
@@ -612,7 +611,6 @@ class MultiStepModel(pl.LightningModule):
         for t in range(timesteps):
             f_t = forcings[:, t]
             inp = torch.cat([f_t, s, x], dim=1)
-            #out = torch.tanh(self.model(inp))
             out = self.model(inp)
             x = out + x
             next_frames.append(x)
@@ -651,42 +649,3 @@ class MultiStepModel(pl.LightningModule):
 
     def configure_loss(self, loss_fun=F.mse_loss):
         self.loss_fun = loss_fun
-
-
-
-@model_builder.register_emulator('LaggedMultiStepModel')
-class LaggedMultiStepModel(pl.LightningModule):
-    def __init__(
-        self,
-        in_channel,
-        out_channel,
-        layer_model=UNet,
-        layer_model_kwargs={},
-    ):
-        super().__init__()
-        self.in_channel = in_channel
-        self.out_channel = out_channel
-        self.model = layer_model(
-            self.in_channel,
-            self.out_channel,
-            **layer_model_kwargs
-        )
-
-    def forward(self, forcings, init_cond, static_inputs):
-        batch, timesteps, channels, height, width = forcings.shape
-
-        next_frames = []
-
-        # NOTE: init_cond and static_inputs have length=1 on time
-        x0 = init_cond[:, 0]
-        x1 = init_cond[:, 0]
-        s = static_inputs[:, 0]
-        for t in range(timesteps):
-            f_t = forcings[:, t]
-            inp = torch.cat([f_t, s, x0, x1], dim=1)
-            out = torch.tanh(self.model(inp))
-            x0 = x1
-            x1 = out + x1
-            next_frames.append(x1)
-        next_frames = torch.stack(next_frames, dim=1)
-        return next_frames
