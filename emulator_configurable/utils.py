@@ -194,12 +194,9 @@ def find_resume_checkpoint(
 
 
 def find_last_checkpoint(
-    log_dir,
     experiment_name,
-    uri_scheme='file:',
-    uri_authority='',
+    tracking_uri,
 ):
-    tracking_uri = f'{uri_scheme}{uri_authority}{log_dir}'
     mlflow.set_tracking_uri(tracking_uri)
     client = mlflow.tracking.MlflowClient()
 
@@ -224,6 +221,16 @@ def find_last_checkpoint(
         checkpoints = sorted(glob(f'{checkpoint_dir}/*.ckpt'), key=os.path.getmtime)
         last_checkpoint = checkpoints[-1]
     return last_checkpoint
+
+
+def find_checkpoint(
+    method,
+    log_dir,
+    experiment_name,
+    uri_scheme='file:',
+    uri_authority='',
+):
+    pass
 
 
 def get_full_metric_df(

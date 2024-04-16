@@ -6,7 +6,7 @@ import xarray as xr
 import pickle
 import dill
 import torch.nn.functional as F
-import utils
+from . import utils
 
 
 def from_defaults(defaults):

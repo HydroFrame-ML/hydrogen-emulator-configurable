@@ -209,13 +209,8 @@ class ForcedSTRNN(pl.LightningModule):
         self,
         opt=torch.optim.AdamW,
     ):
-        steps = self.number_batches
         optimizer = opt(self.parameters(), lr=self.learning_rate, betas=[0.8, 0.95])
-        total_epochs = self.trainer.max_epochs
-        
-        scheduler = OneCycleLR(optimizer, max_lr=self.learning_rate, total_steps=total_epochs * steps)
-        scheduler = {"scheduler": scheduler, "interval" : "step"}
-        return [optimizer], [scheduler]
+        return optimizer
 
     def configure_loss(self, loss_fun=F.mse_loss):
         def _inner_loss(yhat, y):
@@ -639,13 +634,8 @@ class MultiStepModel(pl.LightningModule):
         self,
         opt=torch.optim.AdamW,
     ):
-        steps = self.number_batches
         optimizer = opt(self.parameters(), lr=self.learning_rate, betas=[0.8, 0.95])
-        total_epochs = self.trainer.max_epochs
-        
-        scheduler = OneCycleLR(optimizer, max_lr=self.learning_rate, total_steps=total_epochs * steps)
-        scheduler = {"scheduler": scheduler, "interval" : "step"}
-        return [optimizer], [scheduler]
+        return optimizer
 
     def configure_loss(self, loss_fun=F.mse_loss):
         self.loss_fun = loss_fun

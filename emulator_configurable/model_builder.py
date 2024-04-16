@@ -1,3 +1,7 @@
+import torch
+import os
+
+from emulator_configurable import utils
 
 def register_layer(key):
     """
@@ -60,6 +64,33 @@ class ModelFactory:
             config['layer_model'] = self.registry['model'][layer_model]
         ModelClass = self.registry['emulator'][type]
         return ModelClass(**config)
+
+
+def model_setup(
+    model_type,
+    model_config,
+    learning_rate,
+    gradient_loss_penalty,
+    state_dict=None,
+):
+    # Create the model structure
+    model = ModelBuilder.build_emulator(type=model_type, config=model_config)
+    # Load the state dictionary if it is provided
+    # These are the weights of the model that were saved during training
+    if state_dict:
+        model.load_state_dict(state_dict)
+
+    # Configure the loss function. If gradient_loss_penalty is True, use the
+    # spatial gradient penalty loss, otherwise use the default mse_loss.
+    # The spatial gradient penalty loss adds an additional term to the 
+    # loss which accounts for the spatial gradient of the output, calculated
+    # via a simple finite difference.
+    if gradient_loss_penalty:
+        model.configure_loss(loss_fun=utils.spatial_gradient_penalty_loss)
+    else:
+        model.configure_loss(loss_fun=F.mse_loss)
+    model.learning_rate = learning_rate
+    return model
 
 
 # Set the concrete instance, but make it look like a singleton

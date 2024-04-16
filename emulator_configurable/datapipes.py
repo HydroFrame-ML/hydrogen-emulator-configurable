@@ -1,6 +1,5 @@
 import dask
 import torch
-import scalers
 import numpy as np
 import xarray as xr
 import xbatcher as xb
@@ -9,6 +8,7 @@ import parflow as pf
 # WARNING: Hack for certain versions of torch/torchdata
 torch.utils.data.datapipes.utils.common._check_lambda_fn = None
 
+from . import scalers
 from functools import partial
 from torchdata.datapipes.iter import IterDataPipe
 from torchdata.datapipes import functional_datapipe
@@ -238,16 +238,13 @@ def create_new_loader(
     persistent_workers=True,
 ):
     dataset_files = files
-    scalers = scalers.load_scalers(scaler_file)
-    scalers['cbrt_swe']      = scalers.get('cbrt_swe', scalers.MinMaxScaler(0, 3))
-    scalers['cbrt_swe_prev'] = scalers['cbrt_swe']
-    scalers['cbrt_swe_next'] = scalers['cbrt_swe']
-    scalers['rainfall'] = scalers['APCP']
+    scale_dict = scalers.load_scalers(scaler_file)
+    scale_dict['cbrt_swe']      = scale_dict.get('cbrt_swe', scalers.MinMaxScaler(0, 3))
     for i in range(5):
-        scalers[f'pressure_prev_{i}'] = scalers[f'pressure_{i}']
-        scalers[f'pressure_next_{i}'] = scalers[f'pressure_{i}']
-    scalers[f'swe_prev'] = scalers[f'swe']
-    scalers[f'et_prev'] = scalers[f'et']
+        scale_dict[f'pressure_prev_{i}'] = scale_dict[f'pressure_{i}']
+        scale_dict[f'pressure_next_{i}'] = scale_dict[f'pressure_{i}']
+    scale_dict[f'swe_prev'] = scale_dict[f'swe']
+    scale_dict[f'et_prev'] = scale_dict[f'et']
 
     input_dims = {'time': nt, 'y': ny, 'x': nx}
     if input_overlap is None:
@@ -264,7 +261,7 @@ def create_new_loader(
 
     # Partial function application
     sel_vars = partial(select_vars, variables=forcings+parameters+states+targets)
-    transform_fn = partial(transform, scalers=scalers)
+    transform_fn = partial(transform, scalers=scale_dict)
 
     convert = partial(
         split_and_convert,

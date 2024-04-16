@@ -2,10 +2,10 @@ import torch
 import numpy as np
 import pandas as pd
 import xarray as xr
-import scalers
 from torch import nn
 from glob import glob
 from tqdm import tqdm
+from . import scalers
 from .utils import sequence_to_device, load_state_dict_from_checkpoint
 from .datapipes import create_new_loader, create_batch_generator
 from .model_builder import ModelBuilder

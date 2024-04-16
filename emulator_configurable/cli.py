@@ -4,37 +4,10 @@ import json
 import os
 import sys
 import shutil
-import scalers
 from functools import partial
 from pprint import pprint
-from pytorch_lightning.callbacks import (
-    ModelCheckpoint,
-    LearningRateMonitor
-)
-from .utils import MetricsCallback
 
-def train_surface(
-    config: dict,
-):
-    raise NotImplementedError()
-
-def train_subsurface(
-    config: dict,
-):
-    lr_monitor = LearningRateMonitor(logging_interval='step')
-    metrics = MetricsCallback()
-    checkpoint = ModelCheckpoint(
-        save_top_k=5,
-        every_n_train_steps=config['logging_frequency'],
-        every_n_epochs=None,
-        monitor='train_loss'
-    )
-    epoch_checkpoint = ModelCheckpoint(
-        every_n_epochs=1,
-    )
-    config['callbacks'] = [metrics, checkpoint, epoch_checkpoint, lr_monitor]
-    emulator.train.train_model(config)
-
+from . import scalers
 
 def predict_surface(
     config: dict,
@@ -96,9 +69,9 @@ def main():
     with open(args.config, 'r') as f:
         config = json.loads(f.read())
     if mode == 'train' and domain == 'surface':
-        train_surface(config)
+        emulator.train.train_model(config)
     elif mode == 'train' and domain == 'subsurface':
-        train_subsurface(config)
+        emulator.train.train_model(config)
     elif mode == 'predict' and domain == 'surface':
         predict_surface(config)
     elif mode == 'predict' and domain == 'subsurface':
