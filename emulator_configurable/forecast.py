@@ -22,36 +22,9 @@ def run_surface_forecast(ds, config):
     raise NotImplementedError("This function is not implemented yet")
 
 
-def run_subsurface_forecast(ds, config):
-    """
-        TODO: FIXME: OUTDATED DOCSTRING
-
-    Run only the subsurface portion of the forecast. This
-    encompasses only processes which would be simulated by ParFlow
-
-    Parameters
-    ----------
-    ds: xr.Dataset
-        The input data. This should at least have `forecast_lenght` elements
-        in the time dimension as well as the variables required in the
-        `parameters`, `in_vas`, and `state_vars` sections of the configuration.
-    config: dict
-        A configuration for the subsurface forecast. It's specs are:
-        {
-          'scaler_file': path to the scalers used during training,
-          'parameters': parameter values used as inputs,
-          'in_vars': input forcing or other time dependent variables,
-          'state_vars': input state variables from the subsurface,
-          'out_vars': the variables that the forecast is expect to produce,
-          'forecast_length': the length of time that the forecast produces
-          'model_state_file': the path to the saved, trained model
-        }
-
-    Returns
-    -------
-    The xarray dataset with the added `out_vars` with `forecast_length`
-    elements in the time dimension
-    """
+def run_subsurface_forecast(
+        ds, config
+    ):
 
     # Pull some config
     # TODO: Write some tests around this, or maybe use a dataclass
@@ -207,18 +180,8 @@ def run_forecast(
         The subsurface forecast config. See the `run_subsurface_forecast`
         documentation for the specs of what goes in here.
     """
-
-    # TODO: This needs to go in data catalog lookup
-    depth_varying_params = ['van_genuchten_alpha',  'van_genuchten_n',  'porosity',  'permeability']
-    # TODO: The 5 here is hardcoded, it should be pulled from the data catalog
-    for zlevel in range(5):
-        ds[f'pressure_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(1, -1)).drop('time')
-        ds[f'pressure_next_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(2, None)).drop('time')
-        ds[f'pressure_prev_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(0, -2)).drop('time')
-        for v in depth_varying_params:
-            ds[f'{v}_{zlevel}'] = ds[v].isel(z=zlevel)
-
     surf_ds = run_surface_forecast(ds, land_surface_config)
+    # Pull out the last N timesteps to run the subsurface forecast
     ds = ds.isel(time=slice(-land_surface_config['forecast_length'], None))
     # TODO: do not hardcode these
     ds['et'] = surf_ds['et']

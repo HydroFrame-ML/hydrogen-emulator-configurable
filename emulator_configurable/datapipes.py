@@ -115,27 +115,6 @@ class OpenDatasetPipe(IterDataPipe):
         yield self.ds
 
 
-def add_feature_txt(
-    batch,
-    file='/hydrodata/PFCLM/CONUS1_baseline/other_domain_files/CONUS.pitfill.txt',
-    name='elevation'
-):
-    data = np.loadtxt(file, skiprows=1).reshape(1888, 3342)
-    data = xr.DataArray(data, dims=('y', 'x'))
-    batch[name] = data.isel(x=slice(0, len(batch['x'])), y=slice(0, len(batch['y'])))
-    return batch
-
-def add_feature_pfb(
-    batch,
-    file='/home/ab6361/hydrogen_workspace/data/Frac_dist_100_withfilter.pfb',
-    name='frac_dist'
-):
-    data = pf.read_pfb(file).squeeze()
-    data = xr.DataArray(data, dims=('y', 'x'))
-    batch[name] = data.isel(x=slice(0, len(batch['x'])), y=slice(0, len(batch['y'])))
-    return batch
-
-
 def select_vars(batch, variables):
     return batch[variables]
 
@@ -218,7 +197,6 @@ def load_in_parallel(batch):
 
 def create_new_loader(
     files,
-    scaler_file,
     nt,
     ny,
     nx,
@@ -236,15 +214,14 @@ def create_new_loader(
     dtype=torch.float32,
     pin_memory=True,
     persistent_workers=True,
+    scaler_file=None,
 ):
+    dask.config.set(scheduler="threads", num_workers=4)
     dataset_files = files
-    scale_dict = scalers.load_scalers(scaler_file)
-    scale_dict['cbrt_swe']      = scale_dict.get('cbrt_swe', scalers.MinMaxScaler(0, 3))
-    for i in range(5):
-        scale_dict[f'pressure_prev_{i}'] = scale_dict[f'pressure_{i}']
-        scale_dict[f'pressure_next_{i}'] = scale_dict[f'pressure_{i}']
-    scale_dict[f'swe_prev'] = scale_dict[f'swe']
-    scale_dict[f'et_prev'] = scale_dict[f'et']
+    if scaler_file is None:
+        scale_dict = scalers.DEFAULT_SCALERS
+    else:
+        scale_dict = scalers.load_scalers(scaler_file)
 
     input_dims = {'time': nt, 'y': ny, 'x': nx}
     if input_overlap is None:
@@ -302,6 +279,8 @@ def create_new_loader(
         pin_memory=pin_memory,
         persistent_workers=persistent_workers,
         shuffle=False,
+        prefetch_factor=3,
+        multiprocessing_context='forkserver',
     )
     dl.number_batches = number_batches
     return dl

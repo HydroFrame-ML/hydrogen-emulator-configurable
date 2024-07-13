@@ -68,10 +68,11 @@ def main():
             'Domain must be "surface", "subsurface", or "combined"!')
     with open(args.config, 'r') as f:
         config = json.loads(f.read())
+        config['config_file'] = args.config
     if mode == 'train' and domain == 'surface':
-        emulator.train.train_model(config)
+        emulator.train.train_model(**config)
     elif mode == 'train' and domain == 'subsurface':
-        emulator.train.train_model(config)
+        emulator.train.train_model(**config)
     elif mode == 'predict' and domain == 'surface':
         predict_surface(config)
     elif mode == 'predict' and domain == 'subsurface':

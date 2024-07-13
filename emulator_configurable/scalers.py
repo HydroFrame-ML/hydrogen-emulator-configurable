@@ -5,12 +5,16 @@ import torch
 import xarray as xr
 import pickle
 import dill
+import yaml
 import torch.nn.functional as F
 from . import utils
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_SCALER_PATH = f'{HERE}/default_scalers.yaml'
 
-def from_defaults(defaults):
-    return {k: cls(**kwargs) for k, (cls, kwargs) in defaults.items()}
+
+def from_pickle(pickled_dict):
+    return {k: cls(**kwargs) for k, (cls, kwargs) in pickled_dict.items()}
 
 
 def save_scalers(scaler_values, path):
@@ -26,7 +30,7 @@ def load_scalers(path):
     f = open(path, 'rb')
     scaler_values = dill.load(f)
     f.close()
-    return from_defaults(scaler_values)
+    return from_pickle(scaler_values)
 
 
 class BaseScaler:
@@ -36,26 +40,6 @@ class BaseScaler:
         self.fit(x)
         return self.transform(x)
 
-'''
-class OneHotScaler(BaseScaler):
-
-    def __init__(self, num_classes=-1):
-        super().__init__()
-        self.num_classes = num_classes
-
-    def fit(self, x):
-        self.num_classes = torch.max(x)
-
-    def transform(self, x):
-        x = torch.tensor(np.array(x, dtype=np.int64))
-        oh = F.one_hot(x, num_classes=self.num_classes)
-        oh = oh.permute(tuple(np.roll(np.arange(oh.ndim), 1)))
-        return oh.numpy()
-
-    def inverse_transform(self, x):
-        """Probably can be implemented with torch.argmax"""
-        raise NotImplementedError()
-'''
 
 class OneHotScaler(object):
     def __init__(self, num_classes=-1, name=''):
@@ -86,82 +70,6 @@ class OneHotScaler(object):
     def inverse_transform(self, x):
         """Probably can be implemented with torch.argmax"""
         raise NotImplementedError()
-
-class MedianAndQuantileScaler(BaseScaler):
-
-    def __init__(self, median_file, quantile_file, q_range=[0.9, 0.1], **kwargs):
-        self.median = xr.open_dataarray(median_file)
-        self.high = xr.open_dataarray(quantile_file).sel(quantile=q_range[0])
-        self.low = xr.open_dataarray(quantile_file).sel(quantile=q_range[1])
-
-    def fit(self, x):
-        pass
-
-    def transform(self, x, eps=1e-12):
-        sel_med = self.median.sel(**x.coords)
-        sel_low = self.low.sel(**x.coords)
-        sel_high = self.high.sel(**x.coords)
-        return (x - sel_med) / (sel_high - sel_low + eps)
-
-    def inverse_transform(self, x, eps=1e-12):
-        sel_med = self.median.sel(**x.coords)
-        sel_low = self.low.sel(**x.coords)
-        sel_high = self.high.sel(**x.coords)
-        return (x - sel_med) / (sel_high - sel_low + eps)
-
-
-class ScalarFunctionScaler(BaseScaler):
-
-    def __init__(self, f, f_inverse):
-        self.f = f
-        self.f_inverse = f_inverse
-
-    def fit(self, x):
-        pass
-
-    def transform(self, x):
-        return self.f(x)
-
-    def inverse_transform(self, xhat):
-        return self.f_inverse(xhat)
-
-
-class BoxCoxScaler(BaseScaler):
-    """
-    The BoxCoxScaler provides a way to scale skewed distributions
-    towards a more normal distribution.
-    """
-
-    def __init__(self, lmbda=None, shift=None, **kwargs):
-        self.lmbda = lmbda
-        self.shift = shift
-        self.eps = 1e-6
-
-    def fit(self, x):
-        x = x.view(-1)
-        self.shift = x.min() - self.eps
-        self.lmbda = self._estimate_lmbda(x - self.shift)
-
-    def transform(self, x):
-        orig_shape = x.shape
-        x = x.view(-1)
-        if self.lmbda == 0:
-            y = torch.log(x - self.shift)
-        else:
-            y = (torch.pow(x, self.lmbda) - 1) / self.lmbda
-        return y.view(orig_shape)
-
-    def inverse_transform(self, y):
-        orig_shape = y.shape
-        y = y.view(-1)
-        if self.lmbda == 0:
-            x = torch.exp(y)
-        else:
-            x = torch.pow(self.lmbda * y + 1, 1/self.lmbda)
-        return x.view(orig_shape)
-
-    def _estimate_lmbda(self, x):
-        return scipy.stats.boxcox_normmax(x)
 
 
 class MinMaxScaler(BaseScaler):
@@ -217,27 +125,16 @@ class StandardScaler(BaseScaler):
         return x
 
 
-class CompositeScaler(BaseScaler):
-    """
-    CompositeScalers can be used to apply multiple transforms
-    """
+def create_scalers_from_yaml(file):
+    with open(file, 'r') as f:
+        lookup = yaml.load(f, Loader=yaml.FullLoader)
+    scalers = {}
+    for k, v in lookup.items():
+        if v['type'] == 'StandardScaler':
+            scalers[k] = StandardScaler(float(v['mean']), float(v['std']))
+        elif v['type'] == 'MinMaxScaler':
+            scalers[k] = MinMaxScaler(float(v['min']), float(v['max']))
+    return scalers
 
-    def __init__(self, scaler_values=[]):
-        self.scalers = scaler_values
 
-    def fit(self, x):
-        for s in self.scalers:
-            s.fit(x)
-            # Need to transform the current input
-            # for the next scaler's fit
-            x = s.transform(x)
-
-    def transform(self, x):
-        for s in self.scalers:
-            x = s.transform(x)
-        return x
-
-    def inverse_transform(self, y):
-        for s in self.scalers:
-            y = s.inverse_transform(y)
-        return y
+DEFAULT_SCALERS = create_scalers_from_yaml(DEFAULT_SCALER_PATH)

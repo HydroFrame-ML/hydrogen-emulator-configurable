@@ -185,7 +185,7 @@ class ForcedSTRNN(pl.LightningModule):
 
             x = self.conv_last(h_t[-1]) + x
             next_frames.append(x)
-
+        
         self.decouple_loss = torch.mean(torch.stack(decouple_loss, dim=0))
         # Stack to: [batch, length, channel, height, width]
         next_frames = torch.stack(next_frames, dim=1)

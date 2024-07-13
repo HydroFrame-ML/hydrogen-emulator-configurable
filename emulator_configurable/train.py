@@ -1,9 +1,9 @@
 import os
 import torch
 import pytorch_lightning as pl
-import torch.nn.functional as F
 
 
+from typing import List, Union, Optional
 from glob import glob
 from . import utils
 from .datapipes import create_new_loader
@@ -14,27 +14,44 @@ from .process_heads import (
     OverlandFlowHead
 )
 from pytorch_lightning.callbacks import (
+    Callback,
     ModelCheckpoint,
     LearningRateMonitor
 )
 from .utils import MetricsCallback, find_resume_checkpoint
 
 def train_model(
-    config,
+    run_name: str,
+    model_type: dict,
+    model_config: dict,
+    forcings: List[str],
+    parameters: List[str],
+    states: List[str],
+    targets: List[str],
+    train_dataset_files: List[str],
+    patch_size: int,
+    max_epochs: int,
+    learning_rate: float,
+    sequence_length: int,
+    *,
+    batch_size: int=1,
+    num_workers: int=1,
+    precision: str='16',
+    resume_from_checkpoint: bool=False,
+    gradient_loss_penalty: bool=True,
+    logging_frequency: int=10,
+    callbacks: List[Callback]=[],
+    device: Union[torch.device, str]='cuda',
+    logging_location: str='https://concord.princeton.edu/mlflow/',
+    scaler_file: Optional[str]=None,
+    config_file: Optional[str]=None
 ):
-    # Set up logging
-    logger = pl.loggers.MLFlowLogger(
-        experiment_name=config['run_name'],
-        tracking_uri="https://concord.princeton.edu/mlflow/"
-    )
-    logger.log_hyperparams(config)
-
     # Set up callbacks
     lr_monitor = LearningRateMonitor(logging_interval='step')
     metrics = MetricsCallback()
     checkpoint = ModelCheckpoint(
         save_top_k=5,
-        every_n_train_steps=config['logging_frequency'],
+        every_n_train_steps=logging_frequency,
         every_n_epochs=None,
         monitor='train_loss'
     )
@@ -43,52 +60,51 @@ def train_model(
     )
     callbacks = [lr_monitor, metrics, checkpoint, epoch_checkpoint]
 
-    # Pull out some useful variables from the config
-    resume_from_checkpoint = config['resume_from_checkpoint']
-    log_dir = config['log_dir']
-    run_name = config['run_name']
-    # Might need to populate some defaults if not in the config
-    logging_frequency = config.get('logging_frequency', 1)
-    callbacks = config.get('callbacks', [])
-    max_epochs = config.get('max_epochs', 1)
-    device = config.get('device', 'gpu')
+    # Set up logging
+    logger = pl.loggers.MLFlowLogger(
+        experiment_name=run_name,
+        tracking_uri=logging_location,
+        log_model='all'
+    )
+    logger.log_hyperparams(locals())
+    if config_file:
+        logger.experiment.log_artifact(logger.run_id, config_file, )
 
     if resume_from_checkpoint:
         ckpt_path = find_resume_checkpoint(run_name)
     else:
         ckpt_path = None
 
-
     # Set up the model 
     model = model_setup(
-        model_type=config['model_def']['type'],
-        model_config=config['model_def']['config'],
-        learning_rate=config['learning_rate'],
-        gradient_loss_penalty=config['gradient_loss_penalty'],
-    )
+        model_type=model_type,
+        model_config=model_config,
+        learning_rate=learning_rate,
+        gradient_loss_penalty=gradient_loss_penalty,
+    ).to(device)
 
     # Create the data loading pipeline
     train_dl = create_new_loader(
-        files=config['train_dataset_files'],
-        scaler_file=config['scaler_file'],
-        nt=config['sequence_length'],
-        ny=config['patch_size'],
-        nx=config['patch_size'],
-        forcings=config['forcings'],
-        parameters=config['parameters'],
-        states=config['states'],
-        targets=config['targets'],
-        batch_size=config['batch_size'],
-        num_workers=config['num_workers'],
+        files=train_dataset_files,
+        nt=sequence_length,
+        ny=patch_size,
+        nx=patch_size,
+        forcings=forcings,
+        parameters=parameters,
+        states=states,
+        targets=targets,
+        batch_size=batch_size,
+        num_workers=num_workers,
         shuffle=True,
         selectors={},
+        scaler_file=scaler_file
     )
 
     # Configure the trainer. 
     trainer = pl.Trainer(
         accelerator=device,
         callbacks=callbacks,
-        precision=config['precision'],
+        precision=precision,
         max_epochs=max_epochs,
         num_sanity_val_steps=0,
         log_every_n_steps=logging_frequency,
