@@ -1,18 +1,9 @@
-import os
 import torch
 import pytorch_lightning as pl
 
-
 from typing import List, Union, Optional
-from glob import glob
-from . import utils
-from .datapipes import create_new_loader
-from .model_builder import ModelBuilder, model_setup
-from .process_heads import (
-    SaturationHead,
-    WaterTableDepthHead,
-    OverlandFlowHead
-)
+from .data_loader import create_new_loader
+from .model_builder import model_setup
 from pytorch_lightning.callbacks import (
     Callback,
     ModelCheckpoint,
@@ -80,7 +71,7 @@ def train_model(
     logger = pl.loggers.MLFlowLogger(
         experiment_name=run_name,
         tracking_uri=logging_location,
-        log_model=True#'all'
+        log_model=True
     )
     logger.log_hyperparams(locals())
     if config_file:

@@ -38,7 +38,7 @@ You can also see some examples of training scripts in the `train_scripts` direct
 To run inference you will have to use the interfaces defined in the `inference.py` module.
 This can be done either from the command line or from a python script. 
 
-### Commamnd line example
+### Command line example
 ```
 #!/bin/bash
 source ~/.mlflow_credentials

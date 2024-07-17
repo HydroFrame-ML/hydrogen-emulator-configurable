@@ -76,6 +76,21 @@ def model_setup(
     precision=torch.float32,
     device='cuda',
 ):
+    """
+    Set up the model for training or inference.
+
+    Args:
+        model_type (str): The type of model to build.
+        model_config (dict): The configuration parameters for building the model.
+        learning_rate (float, optional): The learning rate for the optimizer. Defaults to None.
+        gradient_loss_penalty (bool, optional): Whether to use the spatial gradient penalty loss. Defaults to True.
+        model_weights (dict, optional): The weights of the model saved during training. Defaults to None.
+        precision (torch.dtype, optional): The precision of the model. Defaults to torch.float32.
+        device (str, optional): The device to use for training or inference. Defaults to 'cuda'.
+
+    Returns:
+        Model: The configured model.
+    """
     # Create the model structure
     model = ModelBuilder.build_emulator(type=model_type, config=model_config)
     # Load the state dictionary if it is provided
