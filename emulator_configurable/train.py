@@ -98,7 +98,7 @@ def train_model(
         batch_size=batch_size,
         num_workers=num_workers,
         shuffle=True,
-        selectors={'x': slice(0, 512), 'y': slice(0, 512)},
+        selectors={},
         scaler_file=scaler_file
     )
 
