@@ -18,6 +18,6 @@ setup(
         'xbatcher',
     ],
     entry_points={'console_scripts': [
-        'parflow_emulator= emulator_configurable.cli:main',
+        'parflow_emulator= emulator_configurable.main:main',
     ]},
 )

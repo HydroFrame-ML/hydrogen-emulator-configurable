@@ -1,6 +1,7 @@
 import torch
 import os
 
+from torch.nn import functional as F
 from emulator_configurable import utils
 
 def register_layer(key):
@@ -69,16 +70,23 @@ class ModelFactory:
 def model_setup(
     model_type,
     model_config,
-    learning_rate,
-    gradient_loss_penalty,
-    state_dict=None,
+    learning_rate=None,
+    gradient_loss_penalty=True,
+    model_weights=None,
+    precision=torch.float32,
+    device='cuda',
 ):
     # Create the model structure
     model = ModelBuilder.build_emulator(type=model_type, config=model_config)
     # Load the state dictionary if it is provided
     # These are the weights of the model that were saved during training
-    if state_dict:
-        model.load_state_dict(state_dict)
+    if model_weights:
+        model.load_state_dict(model_weights)
+    # Move the model to the device and precision specified
+    if device:
+        model.to(device)
+    if precision:
+        model.to(precision)
 
     # Configure the loss function. If gradient_loss_penalty is True, use the
     # spatial gradient penalty loss, otherwise use the default mse_loss.
@@ -89,7 +97,8 @@ def model_setup(
         model.configure_loss(loss_fun=utils.spatial_gradient_penalty_loss)
     else:
         model.configure_loss(loss_fun=F.mse_loss)
-    model.learning_rate = learning_rate
+    if learning_rate:
+        model.learning_rate = learning_rate
     return model
 
 

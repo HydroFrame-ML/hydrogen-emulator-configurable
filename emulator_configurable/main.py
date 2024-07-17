@@ -3,11 +3,18 @@ import argparse
 import json
 import os
 import sys
+import torch
 import shutil
+import xarray as xr
 from functools import partial
 from pprint import pprint
 
 from . import scalers
+from .utils import (
+    maybe_split_3d_vars,
+    try_get_checkpoint,
+    save_predictions
+)
 
 def predict_surface(
     config: dict,
@@ -19,31 +26,34 @@ def predict_subsurface(
     config: dict,
 ):
     """
-    TODO: go back and refactor this to be more flexible on the data input side
+    Run subsurface prediction using the provided configuration.
+
+    Args:
+        config (dict): A dictionary containing the configuration parameters for subsurface prediction.
+
+    Returns:
+        pred_ds (xarray.Dataset): The predicted subsurface dataset.
     """
-    import dask
-    from dask.distributed import Client, LocalCluster
-    dask.config.set(**{'array.slicing.split_large_chunks': False})
-    cluster = LocalCluster(
-        n_workers=12,
-        threads_per_worker=2,
-        memory_limit='96GB',
-        diagnostics_port=':3878'
+    # Get the model weights
+    checkpoint_location = config.get('logging_location', 'https://concord.princeton.edu/mlflow/')
+    model_weights_file = try_get_checkpoint(
+        config['run_name'],
+        checkpoint_location, 
+        checkpoint_dir=config.get('checkpoint_dir', '.')
     )
-    client = Client(cluster)
-    print(client)
-    base_data_gen = emulator.utils.zarr_data_gen
-    in_files = [
-        '/scratch/ab6361/pfclm_conus1_zarr/conus1_2006_preprocessed.zarr',
-    ]
-    ds = base_data_gen(files=in_files).chunk(dict(time=1, x=512, y=512))
-    pred_ds = emulator.forecast.run_subsurface_forecast(ds, config)
-    if 'save_path' in config and os.path.exists(config['save_path']):
-        shutil.rmtree(config['save_path'])
-    if 'save_path' in config and config['save_path'].endswith('zarr'):
-        pred_ds.to_zarr(config['save_path'], consolidated=True)
-    elif 'save_path' in config and config['save_path'].endswith('nc'):
-        pred_ds.to_netcdf(config['save_path'])
+    config['model_weights'] = torch.load(model_weights_file)['state_dict']
+
+    # Open the data, do some preprocessing
+    selectors = config.get('selectors', {})
+    ds = xr.open_mfdataset(config['inference_dataset_files'], engine='zarr').bfill('time')
+    ds = maybe_split_3d_vars(ds).isel(**selectors)
+
+    # Run inference
+    pred_ds = emulator.inference.run_subsurface_inference(ds, **config)
+
+    # Save the results
+    if 'save_path' in config:
+        save_predictions(pred_ds, config['save_path'])
     return pred_ds
 
 
@@ -74,7 +84,7 @@ def main():
     elif mode == 'train' and domain == 'subsurface':
         emulator.train.train_model(**config)
     elif mode == 'predict' and domain == 'surface':
-        predict_surface(config)
+        predict_surface(**config)
     elif mode == 'predict' and domain == 'subsurface':
         predict_subsurface(config)
 

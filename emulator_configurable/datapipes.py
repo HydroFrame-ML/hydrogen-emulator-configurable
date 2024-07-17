@@ -27,7 +27,7 @@ def create_batch_generator(
         ds = files_or_ds.isel(**selectors)
     else:
         ds = open_files(files_or_ds, selectors)
-    dims = dict(ds.dims)
+    dims = dict(ds.sizes)
     shape = tuple(dims.values())
     dummy_ds = xr.DataArray(np.empty(shape), dims=dims, coords=ds.coords)
     bgen = xb.BatchGenerator(dummy_ds, input_dims, **kwargs)
@@ -46,7 +46,7 @@ def estimate_xbatcher_pipe_size(
 
 
 def open_files(files, selectors, var_list=None, load=False):
-    ds = xr.open_mfdataset(files, engine='zarr', compat='override', coords='minimal').chunk({'time': 24})
+    ds = xr.open_mfdataset(files, engine='zarr', compat='override', coords='minimal').chunk('auto')
     ds = ds.assign_coords({
         'x': np.arange(len(ds['x'])),
         'y': np.arange(len(ds['y']))
@@ -225,7 +225,7 @@ def create_new_loader(
 
     input_dims = {'time': nt, 'y': ny, 'x': nx}
     if input_overlap is None:
-        input_overlap = {'time': nt//4, 'y': ny//3, 'x': nx//3}
+        input_overlap = {'time': (3*nt)//4, 'y': (2*ny)//3, 'x': (2*nx)//3}
 
     number_batches = estimate_xbatcher_pipe_size(
         files=dataset_files,

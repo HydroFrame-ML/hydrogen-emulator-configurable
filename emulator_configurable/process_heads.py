@@ -41,7 +41,7 @@ class WaterTableDepthHead(nn.Module):
 
     def forward(self, pressure, saturation, dz, depth_ax=1):
         domain_thickness = torch.sum(dz)
-        dz = torch.hstack([dz, torch.tensor(0).to(pressure.device)])
+        dz = torch.hstack([dz, torch.tensor(0).to(pressure.device)]).to(pressure.device)
         unsat_placeholder = torch.mean(saturation, dim=depth_ax).unsqueeze(dim=depth_ax)
         unsat_placeholder = torch.zeros_like(unsat_placeholder)
         saturation = torch.cat([saturation, unsat_placeholder], dim=depth_ax)

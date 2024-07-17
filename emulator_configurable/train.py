@@ -18,11 +18,15 @@ from pytorch_lightning.callbacks import (
     ModelCheckpoint,
     LearningRateMonitor
 )
-from .utils import MetricsCallback, find_resume_checkpoint
+from .utils import (
+    MetricsCallback,
+    get_checkpoint_from_database,
+    get_checkpoint_from_local_logs
+)
 
 def train_model(
     run_name: str,
-    model_type: dict,
+    model_type: str,
     model_config: dict,
     forcings: List[str],
     parameters: List[str],
@@ -37,7 +41,7 @@ def train_model(
     batch_size: int=1,
     num_workers: int=1,
     precision: str='16',
-    resume_from_checkpoint: bool=False,
+    resume_from_checkpoint: Union[bool, str]=False,
     gradient_loss_penalty: bool=True,
     logging_frequency: int=10,
     callbacks: List[Callback]=[],
@@ -55,25 +59,32 @@ def train_model(
         every_n_epochs=None,
         monitor='train_loss'
     )
-    epoch_checkpoint = ModelCheckpoint(
-        every_n_epochs=1,
-    )
-    callbacks = [lr_monitor, metrics, checkpoint, epoch_checkpoint]
+    callbacks = [lr_monitor, metrics, checkpoint]
+
+    # Get the checkpoint if we're resuming a training run
+    if resume_from_checkpoint and isinstance(resume_from_checkpoint, bool):
+        ckpt_path = get_checkpoint_from_database(
+            run_name,
+            logging_location
+        )
+    elif resume_from_checkpoint and isinstance(resume_from_checkpoint, str):
+        ckpt_path = get_checkpoint_from_local_logs(
+            run_name,
+            logging_location,
+            resume_from_checkpoint
+        )
+    else:
+        ckpt_path = None
 
     # Set up logging
     logger = pl.loggers.MLFlowLogger(
         experiment_name=run_name,
         tracking_uri=logging_location,
-        log_model='all'
+        log_model=True#'all'
     )
     logger.log_hyperparams(locals())
     if config_file:
         logger.experiment.log_artifact(logger.run_id, config_file, )
-
-    if resume_from_checkpoint:
-        ckpt_path = find_resume_checkpoint(run_name)
-    else:
-        ckpt_path = None
 
     # Set up the model 
     model = model_setup(
@@ -84,7 +95,7 @@ def train_model(
     ).to(device)
 
     # Create the data loading pipeline
-    train_dl = create_new_loader(
+    data_loader = create_new_loader(
         files=train_dataset_files,
         nt=sequence_length,
         ny=patch_size,
@@ -96,7 +107,7 @@ def train_model(
         batch_size=batch_size,
         num_workers=num_workers,
         shuffle=True,
-        selectors={},
+        selectors={'x': slice(0, 512), 'y': slice(0, 512)},
         scaler_file=scaler_file
     )
 
@@ -112,8 +123,12 @@ def train_model(
         gradient_clip_val=1.5,
         gradient_clip_algorithm="norm"
     )
+
+    # Train the model
     trainer.fit(
         model=model,
-        train_dataloaders=train_dl,
+        train_dataloaders=data_loader,
         ckpt_path=ckpt_path
     )
+
+    logger.finalize()
