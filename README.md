@@ -91,7 +91,7 @@ parflow_emulator --mode predict --domain subsurface --config config_fstr_inferen
 ```
 
 ### Python script example
-```
+```python
 from emulator_configurable.main import predict_subsurface
 from emulator_configurable.utils import (
     load_mlflow_credentials,
