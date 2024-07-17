@@ -1,31 +1,29 @@
 #!/bin/bash
 #
-#SBATCH --job-name=small_fstr_train_1
-#SBATCH --output=log_small_fstr_train_1.txt
+#SBATCH --job-name=fstr_train_1
+#SBATCH --output=log_fstr_train.txt
 #
-#SBATCH --cpus-per-task=12
+#SBATCH --cpus-per-task=32
 #SBATCH --gres=gpu:1
 #SBATCH --time=36:00:00
-#SBATCH --mem=200GB
+#SBATCH --mem=128GB
+
+export http_proxy=http://verde:8080
+export https_proxy=http://verde:8080
+source ~/.mlflow_credentials
 
 TODAY=`date +"%Y-%m-%d"`
-VARIANT="2l_16hd_revisions"
 CONFIG=$(cat <<- EOM
 {
     "resume_from_checkpoint": false,
     "train_dataset_files": [
-        "/scratch/network/ab6361/pfclm_2003_bitrounded.zarr",
         "/scratch/network/ab6361/pfclm_2004_bitrounded.zarr",
         "/scratch/network/ab6361/pfclm_2005_bitrounded.zarr"
     ],
-    "scaler_file": "/home/ab6361/hydrogen_workspace/data/new_scalers_may8.scalers",
-    "log_dir": "/home/ab6361/hydrogen_workspace/artifacts/revisions_logs",
-    "run_name": "fstr_$VARIANT",
+    "run_name": "hydrogen_fstr_layers-2_hidden-16",
     "forcings": ["APCP", "Temp_max", "Temp_min", "melt", "et"],
     "parameters": [
         "topographic_index",
-        "elevation",
-        "frac_dist",
         "permeability_0",
         "permeability_1",
         "permeability_2",
@@ -53,29 +51,27 @@ CONFIG=$(cat <<- EOM
         "pressure_3",
         "pressure_4"
     ],
-    "learning_rate": 0.1,
+    "learning_rate": 0.01,
     "gradient_loss_penalty": true,
-    "sequence_length": 3,
+    "sequence_length": 2,
     "patch_size": 256,
-    "batch_size": 8,
-    "num_workers": 8,
-    "max_epochs": 6,
-    "logging_frequency": 10,
-    "precision": "bf16",
-    "model_def": {
-        "type": "ForcedSTRNN",
-        "config": {
-            "num_layers": 2,
-            "num_hidden": [16, 16],
-            "img_channel": 5,
-            "out_channel": 5,
-            "act_channel": 5,
-            "init_cond_channel": 5,
-            "static_channel": 15
-        }
+    "batch_size": 32,
+    "num_workers": 16,
+    "max_epochs": 1,
+    "logging_frequency": 1,
+    "precision": 16,
+    "model_type": "ForcedSTRNN",
+    "model_config": {
+        "num_layers": 2,
+        "num_hidden": [16, 16],
+        "img_channel": 5,
+        "out_channel": 5,
+        "act_channel": 5,
+        "init_cond_channel": 5,
+        "static_channel": 13
     }
 }
 EOM
 )
-echo $CONFIG > config_small_fstr_phase_1.json
-parflow_emulator --mode train --domain subsurface --config config_small_fstr_phase_1.json
+echo $CONFIG > config_train_fstr.json
+python runner.py --mode train --domain subsurface --config config_train_fstr.json
