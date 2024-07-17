@@ -1,4 +1,3 @@
-from hydroml.loss import MWSE, DWSE
 from functools import partial
 from torch import nn
 from torch.optim.lr_scheduler import ExponentialLR, OneCycleLR
@@ -146,8 +145,6 @@ class ForcedSTRNN(pl.LightningModule):
         return torch.mean(torch.abs(torch.cosine_similarity(c, m, dim=2)))
 
     def forward(self, forcings, init_cond, static_inputs):
-        # Input shape:
-        #   (batch, length, channel, height, width)
         batch, timesteps, channels, height, width = forcings.shape
 
         # Initialize list of states
@@ -166,9 +163,7 @@ class ForcedSTRNN(pl.LightningModule):
 
         # Initialize memory state and first layer cell state
         # Note: static_inputs and init_cond should have length=1
-        # TODO: Fix this requirement
         memory = self.memory_encoder(init_cond[:, 0])
-        # TODO: Should we encode all layer cell states?
         c_t = list(torch.split(
             self.cell_encoder(static_inputs[:, 0]),
             self.num_hidden, dim=1
@@ -186,21 +181,14 @@ class ForcedSTRNN(pl.LightningModule):
                 h_t[i], c_t[i], memory, dc, dm = self.cell_list[i](h_t[i - 1], a, h_t[i], c_t[i], memory)
                 delta_c_list[i] = self.update_state(dc)
                 delta_m_list[i] = self.update_state(dm)
+                decouple_loss.append(self.calc_decouple_loss(delta_c_list[i], delta_m_list[i]))
 
             x = self.conv_last(h_t[-1]) + x
             next_frames.append(x)
-
-            # decoupling loss
-            for i in range(self.num_layers):
-                decouple_loss.append(self.calc_decouple_loss(delta_c_list[i], delta_m_list[i]))
-
+        
         self.decouple_loss = torch.mean(torch.stack(decouple_loss, dim=0))
         # Stack to: [batch, length, channel, height, width]
         next_frames = torch.stack(next_frames, dim=1)
-        #next_frames = torch.clamp(
-        #    torch.stack(next_frames, dim=1)
-        #    -10, 10
-        #)
         return next_frames
 
     def training_step(self, train_batch, train_batch_idx):
@@ -220,19 +208,11 @@ class ForcedSTRNN(pl.LightningModule):
     def configure_optimizers(
         self,
         opt=torch.optim.AdamW,
-        lr=3e-4,
     ):
-        optimizer = opt(self.parameters(), lr=lr, betas=[0.8, 0.95])
-        total_epochs = self.trainer.max_epochs
-        steps = 14_340 # 28_350
-        #return optimizer
-        
-        scheduler = OneCycleLR(optimizer, max_lr=lr, total_steps=total_epochs * steps)
-        scheduler = {"scheduler": scheduler, "interval" : "step"}
-        return [optimizer], [scheduler]
+        optimizer = opt(self.parameters(), lr=self.learning_rate, betas=[0.8, 0.95])
+        return optimizer
 
-    #def configure_loss(self, loss_fun=F.mse_loss):
-    def configure_loss(self, loss_fun=DWSE):
+    def configure_loss(self, loss_fun=F.mse_loss):
         def _inner_loss(yhat, y):
             return loss_fun(yhat, y) + self.decouple_loss
         self.loss_fun = _inner_loss
@@ -325,14 +305,14 @@ class BaseLSTM(pl.LightningModule):
 
 @model_builder.register_layer('DoubleConv')
 class DoubleConv(nn.Module):
-    """(convolution => SeLU) * 2"""
+    """(convolution => GELU) * 2"""
 
     def __init__(
         self,
         in_channels,
         out_channels,
         mid_channels=None,
-        activation=nn.SELU,
+        activation=nn.GELU,
     ):
         super().__init__()
         if not mid_channels:
@@ -340,9 +320,9 @@ class DoubleConv(nn.Module):
         self.activation = activation
         self.double_conv = nn.Sequential(
             nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
-            self.activation(),#(inplace=True),
+            self.activation(),
             nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
-            self.activation(),#(inplace=True)
+            self.activation(),
         )
 
     def forward(self, x):
@@ -353,10 +333,10 @@ class DoubleConv(nn.Module):
 class Down(nn.Module):
     """Downscaling with maxpool then double conv"""
 
-    def __init__(self, in_channels, out_channels, activation=nn.SELU):
+    def __init__(self, in_channels, out_channels, activation=nn.GELU):
         super().__init__()
         self.maxpool_conv = nn.Sequential(
-            nn.MaxPool2d(2),
+            nn.AvgPool2d(2),
             DoubleConv(in_channels, out_channels, activation=activation)
         )
 
@@ -373,7 +353,7 @@ class Up(nn.Module):
         in_channels,
         out_channels,
         bilinear=True,
-        activation=nn.SELU
+        activation=nn.GELU
     ):
         super().__init__()
 
@@ -430,7 +410,7 @@ class OutConv(nn.Module):
 
 
 @model_builder.register_model('UNet')
-class UNet(pl.LightningModule):
+class UNet(nn.Module):
     """
     A basic UNet architecture
     """
@@ -439,7 +419,7 @@ class UNet(pl.LightningModule):
         self,
         in_channel,
         out_channel,
-        activation=nn.Mish,
+        activation=nn.GELU,
         bilinear=True,
         base_channels=8
     ):
@@ -473,29 +453,6 @@ class UNet(pl.LightningModule):
         x = self.up4(x, x1)
         z = self.outc(x)
         return z
-
-    def training_step(self, train_batch, train_batch_idx):
-        x, y = train_batch
-        y_hat = self(x)
-        loss = self.loss_fun(y_hat, y)
-        self.log('train_loss', loss)
-        return loss
-
-    def validation_step(self, val_batch, val_batch_idx):
-        x, y = val_batch
-        y_hat = self(x)
-        loss = self.loss_fun(y_hat, y)
-        self.log('val_loss', loss)
-        return loss
-
-    def configure_optimizers(self, opt=torch.optim.AdamW, **kwargs):
-        optimizer = opt(self.parameters(), **kwargs)
-        scheduler = ExponentialLR(optimizer, gamma=0.9)
-        return [optimizer], [scheduler]
-
-    def configure_loss(self, loss_fun=F.mse_loss):
-        self.loss_fun = loss_fun
-
 
 @model_builder.register_layer('ConvBlock')
 class ConvBlock(nn.Module):
@@ -619,27 +576,6 @@ class BasicResNet(pl.LightningModule):
             x = l(x)
         return x
 
-    def configure_optimizers(self, opt=torch.optim.Adam, **kwargs):
-        optimizer = opt(self.parameters(), **kwargs)
-        return optimizer
-
-    def configure_loss(self, loss_fun=F.mse_loss):
-        self.loss_fun = loss_fun
-
-    def training_step(self, train_batch, train_batch_idx):
-        x, y = train_batch
-        y_hat = self.forward(x).squeeze()
-        loss = self.loss_fun(y_hat, y)
-        self.log('train_loss', loss)
-        return loss
-
-    def validation_step(self, val_batch, val_batch_idx):
-        x, y = val_batch
-        y_hat = self.forward(x).squeeze()
-        loss = self.loss_fun(y_hat, y)
-        self.log('val_loss', loss)
-        return loss
-
 
 @model_builder.register_emulator('MultiStepModel')
 class MultiStepModel(pl.LightningModule):
@@ -670,7 +606,7 @@ class MultiStepModel(pl.LightningModule):
         for t in range(timesteps):
             f_t = forcings[:, t]
             inp = torch.cat([f_t, s, x], dim=1)
-            out = torch.tanh(self.model(inp))
+            out = self.model(inp)
             x = out + x
             next_frames.append(x)
         next_frames = torch.stack(next_frames, dim=1)
@@ -697,98 +633,9 @@ class MultiStepModel(pl.LightningModule):
     def configure_optimizers(
         self,
         opt=torch.optim.AdamW,
-        lr=1e-3,
     ):
-        optimizer = opt(self.parameters(), lr=lr, betas=[0.85, 0.95])
-        total_epochs = self.trainer.max_epochs
-        steps = 45_000 // 4 # Acount for larger batch size
-        scheduler = OneCycleLR(optimizer, max_lr=lr, total_steps=total_epochs * steps)
-        scheduler = {"scheduler": scheduler, "interval" : "step"}
-        return [optimizer], [scheduler]
-        #return optimizer
+        optimizer = opt(self.parameters(), lr=self.learning_rate, betas=[0.8, 0.95])
+        return optimizer
 
-    #def configure_loss(self, loss_fun=DWSE):
     def configure_loss(self, loss_fun=F.mse_loss):
-        #weights = torch.log(torch.arange(self.sequence_length) + 1.1)
-        #weights = weights / torch.sum(weights)
-        ##weights = weights.to(self.device)
-        #loss_fun = partial(loss_fun, weights=weights)
         self.loss_fun = loss_fun
-
-
-@model_builder.register_emulator('LaggedMultiStepModel')
-class LaggedMultiStepModel(pl.LightningModule):
-    def __init__(
-        self,
-        in_channel,
-        out_channel,
-        layer_model=UNet,
-        layer_model_kwargs={},
-    ):
-        super().__init__()
-        self.in_channel = in_channel
-        self.out_channel = out_channel
-        self.model = layer_model(
-            self.in_channel,
-            self.out_channel,
-            **layer_model_kwargs
-        )
-
-    def forward(self, forcings, init_cond, static_inputs):
-        batch, timesteps, channels, height, width = forcings.shape
-
-        next_frames = []
-
-        # NOTE: init_cond and static_inputs have length=1 on time
-        x0 = init_cond[:, 0]
-        x1 = init_cond[:, 0]
-        s = static_inputs[:, 0]
-        for t in range(timesteps):
-            f_t = forcings[:, t]
-            inp = torch.cat([f_t, s, x0, x1], dim=1)
-            out = torch.tanh(self.model(inp))
-            x0 = x1
-            x1 = out + x1
-            next_frames.append(x1)
-        next_frames = torch.stack(next_frames, dim=1)
-        return next_frames
-
-    def training_step(self, train_batch, train_batch_idx):
-        forcing, state, params, target = train_batch
-        y_hat = self(forcing, state, params).squeeze()
-        loss = self.loss_fun(y_hat, target)
-        if torch.isnan(loss):
-            print(torch.isnan(target).sum(), torch.isnan(y_hat).sum())
-            raise ValueError('Loss went nan')
-
-        self.log('train_loss', loss)
-        return loss
-
-    def validation_step(self, val_batch, val_batch_idx):
-        forcing, state, params, target = val_batch
-        y_hat = self(forcing, state, params).squeeze()
-        loss = self.loss_fun(y_hat, target)
-        self.log('val_loss', loss)
-        return loss
-
-    def configure_optimizers(
-        self,
-        opt=torch.optim.AdamW,
-        lr=1e-3,
-    ):
-        optimizer = opt(self.parameters(), lr=lr, betas=[0.85, 0.95])
-        total_epochs = self.trainer.max_epochs
-        steps = 45_000 // 4 # Acount for larger batch size
-        scheduler = OneCycleLR(optimizer, max_lr=lr, total_steps=total_epochs * steps)
-        scheduler = {"scheduler": scheduler, "interval" : "step"}
-        return [optimizer], [scheduler]
-        #return optimizer
-
-    #def configure_loss(self, loss_fun=F.mse_loss):
-    def configure_loss(self, loss_fun=DWSE):
-        #weights = torch.log(torch.arange(self.sequence_length) + 1.1)
-        #weights = weights / torch.sum(weights)
-        ##weights = weights.to(self.device)
-        #loss_fun = partial(loss_fun, weights=weights)
-        self.loss_fun = loss_fun
-

@@ -1,150 +1,337 @@
-import xarray as xr
-import pandas as pd
-import numpy as np
 import dask
+import torch
+import torch.nn.functional as F
+
+import os
+import json
+import torch
+import tempfile
+import mlflow
+from glob import glob
+from tqdm.autonotebook import tqdm
+from pytorch_lightning import Callback
+from pytorch_lightning.callbacks import TQDMProgressBar
+
 
 dask.config.set(**{'array.slicing.split_large_chunks': True})
-NLDAS_PFMETA_PATH = '/hydrodata/forcing/processed_data/CONUS1/NLDAS2/daily/'
-PFCLM_PFMETA_PATH = '/hydrodata/PFCLM/CONUS1_baseline/simulations/daily/'
 
-def conus1_data_gen(selectors={}):
-    dask.config.set(scheduler='single-threaded')
-    ds = xr.open_mfdataset([
-        f'{NLDAS_PFMETA_PATH}/conus1_nldas_daily_2003.pfmetadata',
-        f'{NLDAS_PFMETA_PATH}/conus1_nldas_daily_2004.pfmetadata',
-        f'{NLDAS_PFMETA_PATH}/conus1_nldas_daily_2005.pfmetadata',
-        f'{PFCLM_PFMETA_PATH}/conus1_pfclm_daily_2003.pfmetadata',
-        f'{PFCLM_PFMETA_PATH}/conus1_pfclm_daily_2004.pfmetadata',
-        f'{PFCLM_PFMETA_PATH}/conus1_pfclm_daily_2005.pfmetadata',
-        '/hydrodata/PFCLM/CONUS1_baseline/simulations/static/conus1_parameters.pfmetadata'
-    ],  chunks={'time': 4, 'x': 500, 'y': 500, 'z': 5})
-    ds = ds.isel(**selectors)
-    ds['depth'] = xr.DataArray([0.1, 0.3, 0.6, 1.0, 100.0][::-1], dims=['z'])
-    ds['topographic_index'] = xr.broadcast(ds['z'], ds['topographic_index'])[1]
-    dswe = ds['swe'].diff('time')
-    melt = -1 * dswe.where(dswe < 0, other=0.0)
-    melt.name = 'melt'
-    ds['melt'] = melt
-
-    pressure_1 = ds['pressure'].isel(time=slice(1, None))
-    pressure_1 = pressure_1.assign_coords(coords={'time': pressure_1['time'] - pd.Timedelta('1D')})
-    ds = ds.isel(time=slice(0, -1))
-    ds['pressure_1'] = pressure_1
-    ds = ds.assign_coords({
-        'time': np.arange(len(ds['time'])),
-        'x': np.arange(len(ds['x'])),
-        'y': np.arange(len(ds['y'])),
-        'z': np.arange(len(ds['z'])),
-    })
-    return ds.astype(np.float32).squeeze()
-
-
-def zarr_data_gen(
-    files,
-    selectors={},#{'x': slice(0, 560), 'y': slice(0,560)},
-    chunks={'x': 112, 'y':112, 'z':5, 'time': 7}
+def update_config_for_inference(
+        config,
+        inference_dataset_files,
+        save_path,
+        selectors
 ):
-    ds = xr.open_mfdataset(
-        files, engine='zarr', consolidated=False, data_vars='minimal'
-    ).chunk(chunks).isel(**selectors)
-    train_ds = ds.isel(time=slice(0, -1))
-    depth_varying_params = ['van_genuchten_alpha',  'van_genuchten_n',  'porosity',  'permeability']
+    # Update the config to reflect the inference settings
+    config['inference_dataset_files'] = inference_dataset_files
+    config['save_path'] = save_path
+    config['selectors'] = selectors
+    config['states'] = config.pop('targets')
 
-    for zlevel in range(5):
-        train_ds[f'pressure_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(0, -1)).drop('time')
-        train_ds[f'pressure_next_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(1, None)).drop('time')
-        for v in depth_varying_params:
-            train_ds[f'{v}_{zlevel}'] = ds[v].isel(z=zlevel)
-    # train_ds['melt'] = ds['swe'].diff(dim='time').drop('time')
+    stuff_we_dont_need_for_inference = [
+        'sequence_length',
+        'precision',
+        'logging_frequency',
+        'learning_rate',
+        'batch_size',
+        'num_workers',
+        'num_epochs',
+        'gradient_loss_penalty',
+        'patch_size'
+    ]
+    for key in stuff_we_dont_need_for_inference:
+        config.pop(key, None)
+    return config
 
-    train_ds = train_ds.assign_coords({
-        'time': np.arange(len(train_ds['time'])),
-        'x': np.arange(len(train_ds['x'])),
-        'y': np.arange(len(train_ds['y'])),
-        'z': np.arange(len(ds['z'])),
-    })
-    return train_ds
+def save_predictions(ds, save_path):
+    if save_path.endswith('zarr'):
+        ds.to_zarr(save_path, consolidated=True)
+    elif save_path.endswith('nc'):
+        ds.to_netcdf(save_path)
 
+def maybe_split_3d_vars(ds):
+    """
+    Splits 3D variables in the given dataset along the 'z' dimension.
 
-def netcdf_data_gen(selectors={}):
-    dask.config.set(scheduler='single-threaded')
-    ds = xr.open_mfdataset(['/home/SHARED/data/ab6361/conus1_2006_test.nc',
-                            '/home/SHARED/data/ab6361/conus1_2006_met_test.nc',])
-    #ds = xr.open_dataset(file)
-    ds = ds.isel(**selectors)
+    This function iterates over the variables in the dataset and checks if any of them have a dimension named 'z'.
+    If a variable has a 'z' dimension, it splits the variable into multiple variables along the 'z' dimension.
+    The new variables are named by appending the index of the 'z' dimension to the original variable name.
 
-    pressure_next = ds['pressure'].isel(time=slice(1, None))
-    pressure_next = pressure_next.assign_coords(coords={
-        'time': pressure_next['time'] - pd.Timedelta('1D')
-    })
-    dswe = ds['swe'].diff('time')
-    melt = -1 * dswe.where(dswe < 0, other=0.0)
-    melt.name = melt
-    ds = ds.isel(time=slice(0, -1))
-    ds['pressure_next'] = pressure_next
-    ds['melt'] = melt
+    Parameters:
+    - ds (xarray.Dataset): The dataset containing the variables to be split.
 
-    ds = ds.assign_coords({
-        'time': np.arange(len(ds['time'])),
-        'x': np.arange(len(ds['x'])),
-        'y': np.arange(len(ds['y'])),
-        'z': np.arange(len(ds['z'])),
-    }).chunk({"time": -1})
-    ds = ds.astype(np.float32)
-    if 'vegtype' in ds:
-        ds['vegtype'] = ds['vegetation_type'].astype(np.int64)
+    Returns:
+    - ds (xarray.Dataset): The dataset with the 3D variables split along the 'z' dimension.
+
+    Example:
+    >>> ds = xr.Dataset({'pressure': (['z', 'y', 'x'], np.random.rand(10, 10, 5))})
+    >>> ds = maybe_split_3d_vars(ds)
+    >>> print(ds)
+    <xarray.Dataset>
+    Dimensions:        (x: 10, y: 10, z: 5)
+    Coordinates:
+      * z              (z) int64 0 1 2 3 4
+      * y              (y) int64 0 1 2 3 4 5 6 7 8 9
+      * x              (x) int64 0 1 2 3 4 5 6 7 8 9
+    Data variables:
+        pressure   (z, y, x) float64 ...
+        pressure_0    (x, y) float64 ...
+        pressure_1    (x, y) float64 ...
+        pressure_2    (x, y) float64 ...
+        pressure_3    (x, y) float64 ...
+        pressure_4    (x, y) float64 ...
+    """
+    for v in set(ds.variables) - set(ds.coords):
+        if 'z' in ds[v].dims:
+            for i in range(ds.sizes['z']):
+                if f'{v}_{i}' not in ds:
+                    ds[f'{v}_{i}'] = ds[v].isel(z=i)
     return ds
 
+def spatial_gradient_penalty_loss(yhat, ytru, space_weight=1, loss_fun=F.mse_loss):
+    """
+    Calculates the spatial gradient penalty loss between predicted and true values.
 
-def layered_data_gen(
-    files,
-    selectors={'x': slice(0, 560), 'y': slice(0,560)},
-    chunks={'x': 112, 'y':112, 'z':5, 'time': 7}
+    Args:
+        yhat (torch.Tensor): The predicted values.
+        ytru (torch.Tensor): The true values.
+        space_weight (float, optional): The weight for the spatial gradient penalty. Defaults to 1.
+        loss_fun (function, optional): The loss function to calculate the loss. Defaults to F.mse_loss.
+
+    Returns:
+        torch.Tensor: The calculated loss.
+    """
+    loss = loss_fun(ytru, yhat)
+
+    dx_tru = torch.diff(ytru, dim=-1)
+    dx_hat = torch.diff(yhat, dim=-1)
+    dx_loss = loss_fun(dx_tru, dx_hat)
+
+    dy_tru = torch.diff(ytru, dim=-2)
+    dy_hat = torch.diff(yhat, dim=-2)
+    dy_loss = loss_fun(dy_tru, dy_hat)
+
+    return loss + space_weight * (dx_loss + dy_loss)
+
+
+def count_parameters(model):
+    """
+    Returns the number of parameters in a pytorch model
+    """
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
+
+def sequence_to_device(seq, device):
+    """
+    Move a sequence of tensors to a device.
+    """
+    return [s.to(device) for s in seq]
+
+
+def match_dims(x, target):
+    """
+    Reshape x to match the dimensions of target.
+    """
+    return x.reshape([len(x) if i == len(x) else 1 for i in target.shape])
+
+
+class MetricsCallback(Callback):
+    """
+    PyTorch Lightning metric callback.
+    """
+
+    def __init__(self):
+        super().__init__()
+        self.metrics = {}
+
+    def train_epoch_end(self, trainer, pl_module):
+        for k, v in trainer.logged_metrics.items():
+            if k not in self.metrics.keys():
+                self.metrics[k] = [self._convert(v)]
+            else:
+                self.metrics[k].append(self._convert(v))
+
+    def _convert(self, x):
+        if isinstance(x, torch.Tensor):
+            return x.cpu().detach().numpy()
+        return x
+
+
+class LitProgressBar(TQDMProgressBar):
+    """
+    This just avoids a bug in the progress bar for pytorch lightning
+    that causes the progress bar to creep down the notebook
+    """
+    def init_validation_tqdm(self):
+        bar = tqdm(disable=True,)
+        return bar
+
+
+# MLFLOW Utils:
+def load_mlflow_credentials(mlflow_credentials_file):
+    """
+    Loads MLflow credentials from a file and sets them as environment variables.
+
+    Args:
+        mlflow_credentials_file (str): The path to the MLflow credentials file.
+
+    Raises:
+        FileNotFoundError: If the specified file does not exist.
+    """
+    with open(os.path.expanduser(mlflow_credentials_file)) as f:
+        for line in f:
+            key, value = line.strip().split('=')
+            key = key.split(' ')[-1]
+            value = value.replace("'", "").replace('"', '')
+            os.environ[key] = value
+
+
+def get_config_from_mlflow(experiment_name, tracking_uri, run_idx=0):
+    """
+    Retrieves the configuration file from MLflow for a given experiment.
+
+    Args:
+        experiment_name (str): The name of the MLflow experiment.
+        tracking_uri (str): The URI of the MLflow tracking server.
+        run_idx (int, optional): The index of the run to retrieve the configuration from. Defaults to 0.
+
+    Returns:
+        dict: The configuration dictionary.
+
+    Raises:
+        FileNotFoundError: If the configuration file is not found.
+    """
+    mlflow.set_tracking_uri(tracking_uri)
+
+    # Get the experiment and enumerate the runs that have been executed
+    experiment = mlflow.get_experiment_by_name(experiment_name)
+    experiment_id = experiment.experiment_id
+    runs = mlflow.search_runs(experiment_id)
+
+    # Assumes first run in list is the last one that was executed
+    run = runs.loc[run_idx]
+
+    # Find all artifacts
+    artifact_repo = mlflow.artifacts.get_artifact_repository(run.artifact_uri)
+    all_artifacts = artifact_repo.list_artifacts()
+
+    # find the artifacts that have the name `config_*.json`
+    config_artifacts = [a for a in all_artifacts if 'config_' in a.path]
+    if not config_artifacts:
+        raise FileNotFoundError("Configuration file not found.")
+
+    config = config_artifacts[-1]
+
+    # download the config file
+    temp_dir = tempfile.mkdtemp()
+    artifact_repo.download_artifacts(config.path, temp_dir)
+    config_path = os.path.join(temp_dir, config.path)
+    with open(config_path) as f:
+        config = json.load(f)
+    return config
+
+
+def try_get_checkpoint(
+    experiment_name, 
+    tracking_uri, 
+    checkpoint_dir='.',
+    run_idx=0
 ):
-    ds = xr.open_mfdataset(
-        files, engine='zarr', consolidated=False, data_vars='minimal'
-    ).chunk(chunks).isel(**selectors)
-    train_ds = ds.isel(time=slice(0, -1))
-    depth_varying_params = ['van_genuchten_alpha',  'van_genuchten_n',  'porosity',  'permeability']
+    """
+    Try to get the latest checkpoint from the database, if that fails, get it from the local logs.
 
-    for zlevel in range(5):
-        train_ds[f'pressure_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(0, -1)).drop('time')
-        train_ds[f'pressure_next_{zlevel}'] = ds['pressure'].isel(z=zlevel, time=slice(1, None)).drop('time')
-        for v in depth_varying_params:
-            train_ds[f'{v}_{zlevel}'] = ds[v].isel(z=zlevel)
-    # train_ds['melt'] = ds['swe'].diff(dim='time').drop('time')
+    Args:
+        experiment_name (str): The name of the MLflow experiment.
+        tracking_uri (str): The URI of the MLflow tracking server.
+        run_idx (int, optional): The index of the run to retrieve the checkpoint from. Defaults to 0.
 
-    train_ds = train_ds.assign_coords({
-        'time': np.arange(len(train_ds['time'])),
-        'x': np.arange(len(train_ds['x'])),
-        'y': np.arange(len(train_ds['y'])),
-        'z': np.arange(len(ds['z'])),
-    })
-    return train_ds
-
-
-def adjacent_layer_indices(layer_number, max_layers=4):
-    if layer_number == 0:
-        needed_layers = [layer_number + i for i in [0, 1]]
-    elif layer_number == max_layers:
-        needed_layers = [layer_number + i for i in [-1, 0]]
-    else:
-        needed_layers = [layer_number + i for i in [-1, 0, 1]]
-    return needed_layers
+    Returns:
+        str: The path to the latest checkpoint file.
+    """
+    try:
+        model_weights_file = get_checkpoint_from_database(
+            experiment_name,
+            tracking_uri,
+            run_idx,
+        )
+    except:
+        model_weights_file = get_checkpoint_from_local_logs(
+            experiment_name, 
+            tracking_uri,
+            checkpoint_dir,
+        )
+    return model_weights_file
 
 
-def adjacent_layer_varlist(layer_number, varlist, max_layers=4):
-    out_list = []
+def get_checkpoint_from_database(
+    experiment_name,
+    tracking_uri,
+    run_idx=0,
+):
+    """
+    Retrieves the latest checkpoint from the specified MLflow experiment.
 
-    if layer_number == 0:
-        needed_layers = [layer_number + i for i in [0, 1]]
-    elif layer_number == max_layers:
-        needed_layers = [layer_number + i for i in [-1, 0]]
-    else:
-        needed_layers = [layer_number + i for i in [-1, 0, 1]]
+    Args:
+        experiment_name (str): The name of the MLflow experiment.
+        tracking_uri (str): The URI of the MLflow tracking server.
+        run_idx (int, optional): The index of the run to retrieve the checkpoint from. Defaults to 0.
 
-    for v in varlist:
-        for l in needed_layers:
-            out_list.append(f'{v}_{l}')
+    Returns:
+        str: The path to the latest checkpoint file.
+    """
+    mlflow.set_tracking_uri(tracking_uri)
+    experiment = mlflow.get_experiment_by_name(experiment_name)
+    experiment_id = experiment.experiment_id
+    runs = mlflow.search_runs(experiment_id)
+    # Assumes first run in list is the last one that was executed
+    run = runs.loc[run_idx]
+    artifact_repo = mlflow.artifacts.get_artifact_repository(run.artifact_uri)
+    all_artifacts = artifact_repo.list_artifacts()
+    model_artifacts = [a for a in all_artifacts if a.path.startswith("model")]
+    checkpoint_artifact = model_artifacts[-1]
+    temp_dir = tempfile.mkdtemp()
+    checkpoint_dir = os.path.join(temp_dir, "checkpoint")
+    os.makedirs(checkpoint_dir)
 
-    return out_list
+    # download the checkpoint
+    artifact_repo.download_artifacts(checkpoint_artifact.path, checkpoint_dir)
+
+    # list the downloaded files including walking the directories
+    downloaded_checkpoints = []
+    for root, dirs, files in os.walk(checkpoint_dir):
+        for file in files:
+            if file.endswith(".ckpt"):
+                downloaded_checkpoints.append(
+                    os.path.join(root, file)
+                )
+
+    latest_checkpoint = downloaded_checkpoints[-1]
+    return latest_checkpoint
+
+
+def get_checkpoint_from_local_logs(
+    experiment_name, 
+    tracking_uri, 
+    log_dir,
+):
+    """
+    Get the latest checkpoint file from the local logs directory.
+
+    Args:
+        experiment_name (str): The name of the experiment.
+        tracking_uri (str): The URI of the MLflow tracking server.
+        log_dir (str): The directory where the logs are stored.
+
+    Returns:
+        str: The path to the latest checkpoint file.
+    """
+    mlflow.set_tracking_uri(tracking_uri)
+    client = mlflow.tracking.MlflowClient()
+
+    experiment = client.get_experiment_by_name(experiment_name)
+    experiment_id = experiment.experiment_id
+ 
+    log_dir = f'{os.path.abspath(log_dir)}/{experiment_id}'
+    checkpoints = glob(f'{log_dir}/**/*.ckpt', recursive=True)
+    checkpoints = sorted(checkpoints, key=os.path.getmtime)
+    resume_checkpoint = checkpoints[-1]
+    return resume_checkpoint

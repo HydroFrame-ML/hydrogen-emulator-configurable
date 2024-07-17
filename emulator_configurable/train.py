@@ -1,126 +1,125 @@
-import os
 import torch
-import numpy as np
-import pandas as pd
-import xarray as xr
-import hydroml as hml
-from torch import nn
 import pytorch_lightning as pl
-from glob import glob
-from .datapipes import create_new_loader
-from .dataset import RecurrentDataset, worker_init_fn
-from .model_builder import ModelBuilder
-from hydroml.process_heads import (
-    SaturationHead,
-    WaterTableDepthHead,
-    OverlandFlowHead
+
+from typing import List, Union, Optional
+from .data_loader import create_new_loader
+from .model_builder import model_setup
+from pytorch_lightning.callbacks import (
+    Callback,
+    ModelCheckpoint,
+    LearningRateMonitor
 )
-from torch.utils.data import DataLoader
+from .utils import (
+    MetricsCallback,
+    get_checkpoint_from_database,
+    get_checkpoint_from_local_logs
+)
 
 def train_model(
-    config,
+    run_name: str,
+    model_type: str,
+    model_config: dict,
+    forcings: List[str],
+    parameters: List[str],
+    states: List[str],
+    targets: List[str],
+    train_dataset_files: List[str],
+    patch_size: int,
+    max_epochs: int,
+    learning_rate: float,
+    sequence_length: int,
+    *,
+    batch_size: int=1,
+    num_workers: int=1,
+    precision: str='16',
+    resume_from_checkpoint: Union[bool, str]=False,
+    gradient_loss_penalty: bool=True,
+    logging_frequency: int=10,
+    callbacks: List[Callback]=[],
+    device: Union[torch.device, str]='cuda',
+    logging_location: str='https://concord.princeton.edu/mlflow/',
+    scaler_file: Optional[str]=None,
+    config_file: Optional[str]=None
 ):
-    resume_from_checkpoint = config['resume_from_checkpoint']
-    log_dir = config['log_dir']
-    run_name = config['run_name']
-
-    logging_frequency = config.get('logging_frequency', 1)
-    callbacks = config.get('callbacks', [])
-    max_epochs = config.get('max_epochs', 1)
-
-    # Create the dataset object
-    train_dl = create_new_loader(
-        files=config['train_dataset_files'],
-        scaler_file=config['scaler_file'],
-        nt=config['sequence_length'],
-        ny=config['patch_size'],
-        nx=config['patch_size'],
-        forcings=config['forcings'],
-        parameters=config['parameters'],
-        states=config['states'],
-        targets=config['targets'],
-        batch_size=config['batch_size'],
-        num_workers=config['num_workers'],
-        shuffle=True,
-        selectors={}, # {'x': slice(0, 640), 'y': slice(0, 640)} #TODO: remove this
+    # Set up callbacks
+    lr_monitor = LearningRateMonitor(logging_interval='step')
+    metrics = MetricsCallback()
+    checkpoint = ModelCheckpoint(
+        save_top_k=5,
+        every_n_train_steps=logging_frequency,
+        every_n_epochs=None,
+        monitor='train_loss'
     )
+    callbacks = [lr_monitor, metrics, checkpoint]
 
-    # Create the dataset object
-    # valid_dl = create_new_loader(
-    #     files=config['valid_dataset_files'],
-    #     scaler_file=config['scaler_file'],
-    #     nt=config['sequence_length'],
-    #     ny=config['patch_size'],
-    #     nx=config['patch_size'],
-    #     forcings=config['forcings'],
-    #     parameters=config['parameters'],
-    #     states=config['states'],
-    #     targets=config['targets'],
-    #     batch_size=config['batch_size'],
-    #     num_workers=config['num_workers'],
-    #     shuffle=True,
-    #     #selectors={}, # {'x': slice(0, 640), 'y': slice(0, 640)} #TODO: remove this
-    #     selectors={}
-    # )
-
-    model = ModelBuilder.build_emulator(
-        type=config['model_def']['type'],
-        config=config['model_def']['config']
-    )
-    logger = pl.loggers.MLFlowLogger(
-        experiment_name=run_name,
-        tracking_uri=f'file:{log_dir}',
-    )
-    checkpoint_dir = (f'{logger.save_dir}/{logger.experiment_id}'
-                      f'/{logger.run_id}/checkpoints')
-    print(log_dir, run_name)
-    hparams = {
-        'checkpoint_dir': checkpoint_dir,
-        'forcings': config['forcings'],
-        'parameters': config['parameters'],
-        'states': config['states'],
-        'targets': config['targets'],
-        'patch_size': config['patch_size'],
-        'sequence_length': config['sequence_length'],
-    }
-    logger.log_hyperparams(hparams)
-
-    if (os.path.exists(str(resume_from_checkpoint))
-        and os.path.isfile(str(resume_from_checkpoint))):
-        print(f'Loading state dict from: {resume_from_checkpoint}')
-        state_dict = torch.load(resume_from_checkpoint)
-        model.load_state_dict(state_dict)
-        ckpt_path = None
-    elif resume_from_checkpoint:
-        try:
-            ckpt_path = hml.utils.find_resume_checkpoint(log_dir, run_name)
-            print('-------------------------------------------------------')
-            print(f'Loading state dict from: {ckpt_path}')
-            print('-------------------------------------------------------')
-        except:
-            raise
-            print('-------------------------------------------------------')
-            print(f'Could not find checkpoint for {run_name}!!!')
-            print('-------------------------------------------------------')
-            ckpt_path = None
+    # Get the checkpoint if we're resuming a training run
+    if resume_from_checkpoint and isinstance(resume_from_checkpoint, bool):
+        ckpt_path = get_checkpoint_from_database(
+            run_name,
+            logging_location
+        )
+    elif resume_from_checkpoint and isinstance(resume_from_checkpoint, str):
+        ckpt_path = get_checkpoint_from_local_logs(
+            run_name,
+            logging_location,
+            resume_from_checkpoint
+        )
     else:
         ckpt_path = None
-    model.configure_loss()
 
+    # Set up logging
+    logger = pl.loggers.MLFlowLogger(
+        experiment_name=run_name,
+        tracking_uri=logging_location,
+        log_model=True
+    )
+    logger.log_hyperparams(locals())
+    if config_file:
+        logger.experiment.log_artifact(logger.run_id, config_file, )
+
+    # Set up the model 
+    model = model_setup(
+        model_type=model_type,
+        model_config=model_config,
+        learning_rate=learning_rate,
+        gradient_loss_penalty=gradient_loss_penalty,
+    ).to(device)
+
+    # Create the data loading pipeline
+    data_loader = create_new_loader(
+        files=train_dataset_files,
+        nt=sequence_length,
+        ny=patch_size,
+        nx=patch_size,
+        forcings=forcings,
+        parameters=parameters,
+        states=states,
+        targets=targets,
+        batch_size=batch_size,
+        num_workers=num_workers,
+        shuffle=True,
+        selectors={'x': slice(0, 512), 'y': slice(0, 512)},
+        scaler_file=scaler_file
+    )
+
+    # Configure the trainer. 
     trainer = pl.Trainer(
-        accelerator='gpu',
+        accelerator=device,
         callbacks=callbacks,
-        precision='bf16',
+        precision=precision,
         max_epochs=max_epochs,
         num_sanity_val_steps=0,
         log_every_n_steps=logging_frequency,
         logger=logger,
         gradient_clip_val=1.5,
-        gradient_clip_algorithm="value"
+        gradient_clip_algorithm="norm"
     )
+
+    # Train the model
     trainer.fit(
         model=model,
-        train_dataloaders=train_dl,
-        #val_dataloaders=valid_dl,
+        train_dataloaders=data_loader,
         ckpt_path=ckpt_path
     )
+
+    logger.finalize()
