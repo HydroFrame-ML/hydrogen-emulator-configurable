@@ -3,6 +3,10 @@
 ## Environment instructions
 At the moment creating and installing everything into a working environment takes a bit of work. These are the steps that should get you up and running. 
 
+*NOTE:  this line `conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia` is setup for verde to install locally follow the commnands [here](https://pytorch.org/get-started/locally/) (*lc- The conda one didn't work for me so I did pip*)
+
+lc - I added hydrodata and subset tools to this list to support the workflow for adding dummy data
+
 ```
 # Base install stuff
 conda create -n hydrogen
@@ -13,6 +17,8 @@ conda install -c conda-forge mamba
 mamba install -c conda-forge torchdata pytorch-lightning xarray  xskillscore tqdm dill numcodecs dask netcdf4 zarr fsspec aiohttp pooch rioxarray holoviews geoviews jupyter jupyterlab mlflow ipykernel seaborn numcodecs pip pandas
 
 pip install pftools
+pip install hydrodata
+pip install subsettools
 
 # Install the custom xbatcher version
 git clone git@github.com:arbennett/xbatcher.git
