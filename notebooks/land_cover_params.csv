@@ -1,0 +1,19 @@
+Land Cover Type,Landcover Name,roota,rootb
+1,evergreen needleleaf forests,7,2
+2,evergreen broadleaf forests,7,1
+3,deciduous needleleaf forests,7,2
+4,deciduous broadleaf forests,6,2
+5,mixed forests,5,1.5
+6,closed shrublands,6,1.5
+7,open shrublands,5,2.5
+8,woody savannas,6,2.5
+9,svannas,5,1
+10,grasslands,1,2.5
+11,permanent wetlands,6,2
+12,croplands,6,2.5
+13,urban and built-up lands,5,2
+14,cropland / natural vegetation mosaics,5,2
+15,snow and ice,0,0
+16,barren or sparsely vegetated,5,2
+17,water bodies,0,0
+18,bare soil,0,0
