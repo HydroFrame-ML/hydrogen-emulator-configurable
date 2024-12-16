@@ -15,4 +15,4 @@ The `archive_notebooks` folder contains the original notebooks used to develop t
    - Evaptrans: `evaptrans_scalers.py` + `run_evaptransscalers.slurm`
 - **Note** that for the press and et scalers I just sampled every 5 hours to make the computations faster. 
 - All calculations were done on verde
-- Outputs are csv and yaml files. Output Yaml files were manually combined to create the overall scaler file. 
+- Outputs are csv and yaml files. Output Yaml files were manually combined to create the `default_scalers.yaml` file

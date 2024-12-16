@@ -80,12 +80,17 @@ if run_calcs:
         # evap_trans[z] = qflx_tran_veg * rootfr[z] + qflx_infl + qflx_qirr_inst[z]
         # *3.6 because 1 mm/s = 3.6 m/hr
         # /dz to get to units of 1/hr
-        evap_trans[0,:,:] = (-tran_veg * root_fracs[0,:,:] + infl) * mask * 3.6 /dz_list[0] # Assuming qirr=0
+        evap_trans[9,:,:] = (-tran_veg * root_fracs[0,:,:] + infl) * mask * 3.6 /dz_list[0] # Assuming qirr=0
+        # NOTE: saving this as layer 9 to match PFB convention both root fracs and dz_list were ordered top down so grabbing layer [0] from these
+       
+        #evap_trans[0,:,:] = (-tran_veg * root_fracs[0,:,:] + infl) * mask * 3.6 /dz_list[0] # Assuming qirr=0
+        
 
         #Calculate evaptrans in remaining clm layers
         # pf_flux[z]=(-qflx_tran_veg*rootfr[z]) + qflx_qirr_inst[z]
         for l in range(1,nroot_lay):
-            evap_trans[l, :, :] = (- tran_veg * root_fracs[l,:,:]) * mask * 3.6 /dz_list[l] # Assuming qirr=0
+            #evap_trans[l, :, :] = (- tran_veg * root_fracs[l,:,:]) * mask * 3.6 /dz_list[l] # Assuming qirr=0
+            evap_trans[(9-l), :, :] = (- tran_veg * root_fracs[l,:,:]) * mask * 3.6 /dz_list[l] # Assuming qirr=0
         
         #Write it out as a pfb
         write_dir = "/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/calculated_evaptrans"
