@@ -80,14 +80,14 @@ while wy_hour<=hend:
 et_stdev = (numerator/(np.sum(mask)*hour_count))** 0.5
 
 # Save as CSV and YAML
-fout = 'et_differnce_scalers_' + str(interval) + 'hour.csv'
+fout = 'et_scalers_' + str(interval) + 'hour.csv'
 row_names = ['layer_'+str(val) for val in range(nz)]
 df=pd.DataFrame({'Name':row_names, 'Mean': et_mean, 'stdev': et_stdev})
 df.set_index('Name')
 df.to_csv(fout, index=False)
 
 # Save as YAML
-fout_et = 'et_scalers_' + str(interval) + 'hour.yml'
+fout_et = 'et_scalers_' + str(interval) + 'hour.yaml'
 with open(fout_et, 'w') as file:
     yaml.dump(df.to_dict(orient='records'), file, sort_keys=False)
     

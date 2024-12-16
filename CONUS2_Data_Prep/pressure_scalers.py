@@ -93,14 +93,14 @@ print(pdif_stdev)
 print(pdif_mean)
 
 # Save as CSV and YAML
-fout = 'pressure_differnce_scalers_' + str(interval) + 'hour.csv'
+fout = 'pressure_difference_scalers_' + str(interval) + 'hour.csv'
 row_names = ['layer_'+str(val) for val in range(nz)]
 df=pd.DataFrame({'Name':row_names, 'Mean': pdif_mean, 'stdev': pdif_stdev})
 df.set_index('Name')
 df.to_csv(fout, index=False)
 
 # Save as YAML
-fout_yml = 'pressure_scalers_' + str(interval) + 'hour.yml'
+fout_yml = 'pressure_difference_scalers_' + str(interval) + 'hour.yaml'
 with open(fout_yml, 'w') as file:
     yaml.dump(df.to_dict(orient='records'), file, sort_keys=False)
     
