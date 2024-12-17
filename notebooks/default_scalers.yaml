@@ -395,19 +395,19 @@ evaptrans_5:
   std: 0.0
   type: StandardScaler
 evaptrans_6:
-  Mean: -2.7364851371561863e-06
+  mean: -2.7364851371561863e-06
   std: 6.764709387716456e-06
   type: StandardScaler
 evaptrans_7:
-  Mean: -1.3944141737037838e-05
+  mean: -1.3944141737037838e-05
   std: 3.066004856270538e-05
   type: StandardScaler
 evaptrans_8:
-  Mean: -5.3458510268447215e-05
+  mean: -5.3458510268447215e-05
   std: 0.00011907935069672793
   type: StandardScaler
 evaptrans_9:
-  Mean: 0.0005711542724654267
+  mean: 0.0005711542724654267
   std: 0.007027204756061604
   type: StandardScaler
 

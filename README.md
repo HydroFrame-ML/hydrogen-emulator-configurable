@@ -14,6 +14,8 @@ conda install -c conda-forge python=3.10
 conda install pytorch::pytorch torchvision torchaudio -c pytorch
 # Use this one for Verde
 #conda install pytorch torchvision torchaudio pytorch-cuda=12.1 -c pytorch -c nvidia
+
+#LC note: couldn't get mamba install to work so I skipped that and did the following install line with conda. 
 conda install -c conda-forge mamba
 mamba install -c conda-forge torchdata pytorch-lightning xarray  xskillscore tqdm dill numcodecs dask netcdf4 zarr fsspec aiohttp pooch rioxarray holoviews geoviews jupyter jupyterlab mlflow ipykernel seaborn numcodecs pip pandas
 
