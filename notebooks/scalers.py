@@ -1,13 +1,14 @@
 import os
 import numpy as np
 import scipy.stats
-#import torch
+import torch
 import xarray as xr
 import pickle
 import dill
 import yaml
-#import torch.nn.functional as F
+import torch.nn.functional as F
 #from . import utils
+import utils
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_SCALER_PATH = f'{HERE}/default_scalers.yaml'
@@ -71,34 +72,33 @@ class OneHotScaler(object):
         """Probably can be implemented with torch.argmax"""
         raise NotImplementedError()
 
+class MinMaxScaler(BaseScaler):
+    """
+    The MinMaxScaler simply normalizes the data based on
+    minimum and maximum values into a given feature range.
+    """
 
-#class MinMaxScaler(BaseScaler):
-#    """
-#    The MinMaxScaler simply normalizes the data based on
-#    minimum and maximum values into a given feature range.
-#    """
-#
-#    def __init__(self, x_min=None, x_max=None, feature_range=(0,1), **kwargs):
-#        self.eps = 1e-6
-#        self.x_min = x_min
-#        self.x_max = x_max
-#
-#    def fit(self, x):
-#        self.x_min = x.min()
-#        self.x_max = x.max()
-#
-#    def transform(self, x):
-#        x_scaled = (x - self.x_min) / (self.x_max - self.x_min)
-#        return x_scaled
-#
-#    def inverse_transform(self, y):
-#        x = ((self.x_max - self.x_min) * y) + self.x_min
-#        return x#.view(orig_shape)
-#
-#    def tensor_inverse_transform(self, y):
-#        xmax = utils.match_dims(torch.tensor(self.x_max.values), y).to(y.dtype).to(y.device)
-#        xmin = utils.match_dims(torch.tensor(self.x_min.values), y).to(y.dtype).to(y.device)
-#        return (xmax-xmin) * y + xmin
+    def __init__(self, x_min=None, x_max=None, feature_range=(0,1), **kwargs):
+        self.eps = 1e-6
+        self.x_min = x_min
+        self.x_max = x_max
+
+    def fit(self, x):
+        self.x_min = x.min()
+        self.x_max = x.max()
+
+    def transform(self, x):
+        x_scaled = (x - self.x_min) / (self.x_max - self.x_min)
+        return x_scaled
+
+    def inverse_transform(self, y):
+        x = ((self.x_max - self.x_min) * y) + self.x_min
+        return x#.view(orig_shape)
+
+    def tensor_inverse_transform(self, y):
+        xmax = utils.match_dims(torch.tensor(self.x_max.values), y).to(y.dtype).to(y.device)
+        xmin = utils.match_dims(torch.tensor(self.x_min.values), y).to(y.dtype).to(y.device)
+        return (xmax-xmin) * y + xmin
 
 
 class StandardScaler(BaseScaler):
@@ -133,9 +133,9 @@ def create_scalers_from_yaml(file):
         if v['type'] == 'StandardScaler':
             scalers[k] = StandardScaler(float(v['mean']), float(v['std']))
         elif v['type'] == 'MinMaxScaler':
-            #scalers[k] = MinMaxScaler(float(v['min']), float(v['max']))
-            #print("Need to turn minmax scalers back on!")
+            scalers[k] = MinMaxScaler(float(v['min']), float(v['max']))
+            print("Need to turn minmax scalers back on!")
     return scalers
 
 
-#DEFAULT_SCALERS = create_scalers_from_yaml(DEFAULT_SCALER_PATH)
+DEFAULT_SCALERS = create_scalers_from_yaml(DEFAULT_SCALER_PATH)
