@@ -1,8 +1,12 @@
+import dask
 import torch
+import logging
 import pytorch_lightning as pl
 
+from dask.distributed import Client, LocalCluster
 from typing import List, Union, Optional
-from .data_loader import create_new_loader
+from torch.utils.data import DataLoader
+from .dataset import HydrogenDataset, BatchedDataset
 from .model_builder import model_setup
 from pytorch_lightning.callbacks import (
     Callback,
@@ -14,6 +18,8 @@ from .utils import (
     get_checkpoint_from_database,
     get_checkpoint_from_local_logs
 )
+
+dask.config.set(scheduler='synchronous')
 
 def train_model(
     run_name: str,
@@ -29,6 +35,7 @@ def train_model(
     learning_rate: float,
     sequence_length: int,
     *,
+    selectors: dict={},
     batch_size: int=1,
     num_workers: int=1,
     precision: str='16',
@@ -41,6 +48,14 @@ def train_model(
     scaler_file: Optional[str]=None,
     config_file: Optional[str]=None
 ):
+    # Set up the cluster
+    cluster = LocalCluster(
+        n_workers=num_workers, threads_per_worker=1, memory_limit='4GB',
+        dashboard_address=':4321',
+    )
+    client = Client(cluster)
+    print(f"Dask dashboard link: {client.dashboard_link}")
+
     # Set up callbacks
     lr_monitor = LearningRateMonitor(logging_interval='step')
     metrics = MetricsCallback()
@@ -86,25 +101,19 @@ def train_model(
     ).to(device)
 
     # Create the data loading pipeline
-    data_loader = create_new_loader(
-        files=train_dataset_files,
-        nt=sequence_length,
-        ny=patch_size,
-        nx=patch_size,
-        forcings=forcings,
-        parameters=parameters,
-        states=states,
-        targets=targets,
-        batch_size=batch_size,
-        num_workers=num_workers,
-        shuffle=True,
-        selectors={},
-        scaler_file=scaler_file
+    ds = HydrogenDataset(
+        train_dataset_files, sequence_length, patch_size, patch_size, 
+        forcings, parameters, states, targets,
+        selectors=selectors,
+    )
+    data_loader = BatchedDataset(
+        ds, batch_size=batch_size, client=client, prefetch_factor=8
     )
 
     # Configure the trainer. 
     trainer = pl.Trainer(
         accelerator=device,
+        devices=[0],
         callbacks=callbacks,
         precision=precision,
         max_epochs=max_epochs,
@@ -112,7 +121,8 @@ def train_model(
         log_every_n_steps=logging_frequency,
         logger=logger,
         gradient_clip_val=1.5,
-        gradient_clip_algorithm="norm"
+        gradient_clip_algorithm="norm",
+        accumulate_grad_batches=8
     )
 
     # Train the model

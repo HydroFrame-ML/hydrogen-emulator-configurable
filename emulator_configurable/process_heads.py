@@ -36,12 +36,13 @@ class SaturationHead(nn.Module):
 
 
 class WaterTableDepthHead(nn.Module):
-    def __init__(self):
+    def __init__(self, dz):
         super().__init__()
+        self.dz = dz
 
-    def forward(self, pressure, saturation, dz, depth_ax=1):
-        domain_thickness = torch.sum(dz)
-        dz = torch.hstack([dz, torch.tensor(0).to(pressure.device)]).to(pressure.device)
+    def forward(self, pressure, saturation, depth_ax=1):
+        domain_thickness = torch.sum(self.dz)
+        dz = torch.hstack([self.dz, torch.tensor(0)]).to(pressure.device)
         unsat_placeholder = torch.mean(saturation, dim=depth_ax).unsqueeze(dim=depth_ax)
         unsat_placeholder = torch.zeros_like(unsat_placeholder)
         saturation = torch.cat([saturation, unsat_placeholder], dim=depth_ax)
@@ -283,8 +284,7 @@ class OverlandFlowHead(nn.Module):
         v
         (North)
         """
-
-        pressure_top = torch.clone(pressure[-1, ...])
+        pressure_top = torch.clone(pressure[: ,-1, ...])
         pressure_top = torch.nan_to_num(pressure_top)
         pressure_top[pressure_top < 0] = 0
 

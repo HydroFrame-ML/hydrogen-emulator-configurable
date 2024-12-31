@@ -88,7 +88,8 @@ porosity_4:
   type: StandardScaler
 pressure_prev_0:
   mean: '46.714836'
-  std: '10.240222930908203'
+  #std: '10.240222930908203'
+  std: '8.240222930908203'
   type: StandardScaler
 pressure_prev_1:
   mean: '0.129667'
@@ -108,7 +109,8 @@ pressure_prev_4:
   type: StandardScaler
 pressure_0:
   mean: '46.714836'
-  std: '10.240222930908203'
+  #std: '10.240222930908203'
+  std: '8.240222930908203'
   type: StandardScaler
 pressure_1:
   mean: '0.129667'
@@ -178,5 +180,26 @@ van_genuchten_n_4:
   mean: '2.5980806'
   std: '0.3685187'
   type: StandardScaler
+water_table_depth:
+  max: '50.0'
+  min: '0.0'
+  type: MinMaxScaler
+water_table_depth_prev:
+  max: '50.0'
+  min: '0.0'
+  type: MinMaxScaler
+saturation:
+  max: '1.0'
+  min: '0.0'
+  type: MinMaxScaler
+streamflow:
+  std: '169.80'
+  mean : '0.0'
+  type: StandardScaler
+streamflow_prev:
+  std: '169.80'
+  mean: '0.0'
+  type: StandardScaler
+
 
 

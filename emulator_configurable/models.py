@@ -13,6 +13,14 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from . import model_builder
+from .process_heads import (
+    SaturationHead,
+    WaterTableDepthHead,
+    OverlandFlowHead
+)
+from .scalers import DEFAULT_SCALERS
+
+
 
 class LayerNorm2D(nn.LayerNorm):
     def __init__(self, num_channels, eps=1e-6, affine=True):
@@ -106,6 +114,7 @@ class ForcedSTRNN(pl.LightningModule):
         self.num_layers = num_layers
         self.num_hidden = num_hidden
         self.out_channel = out_channel
+        self.use_decouple_loss = self.num_layers > 1
         self.decouple_loss = None
         cell_list = []
 
@@ -183,10 +192,12 @@ class ForcedSTRNN(pl.LightningModule):
                 delta_m_list[i] = self.update_state(dm)
                 decouple_loss.append(self.calc_decouple_loss(delta_c_list[i], delta_m_list[i]))
 
-            x = self.conv_last(h_t[-1]) + x
+            x = self.conv_last(h_t[-1])# + x TODO: Removed the residual because process heads mess with input/output shape
             next_frames.append(x)
-        
-        self.decouple_loss = torch.mean(torch.stack(decouple_loss, dim=0))
+        if self.use_decouple_loss:
+            self.decouple_loss = torch.mean(torch.stack(decouple_loss, dim=0))
+        else:
+            self.decouple_loss = torch.tensor(0.0).to(self.device)
         # Stack to: [batch, length, channel, height, width]
         next_frames = torch.stack(next_frames, dim=1)
         return next_frames
@@ -218,417 +229,118 @@ class ForcedSTRNN(pl.LightningModule):
         self.loss_fun = _inner_loss
 
 
-
-@model_builder.register_model('BaseLSTM')
-class BaseLSTM(pl.LightningModule):
-    """
-    A basic wrapper around the nn.LSTM module.
-    This allows for some nice user configuration options
-    for the HydroGEN project, and makes it compatible with
-    pytorh-lightning for simpler training scripts.
-
-    Parameters
-    ----------
-    in_features : int
-        The number of input features
-    out_features : int
-        The number of output features
-    hidden_dim : int
-        The number of hidden features
-    nlayers : int
-        The number of layers
-    dropout_prob : float
-        The dropout probability
-    sequence_length : int
-        The number of timesteps to use for the LSTM
-    """
+@model_builder.register_emulator('ParflowClmEmulator')
+class ParflowClmEmulator(pl.LightningModule):
 
     def __init__(
         self,
-        in_features,
-        out_features,
-        hidden_dim,
-        nlayers,
-        dropout_prob=0.0,
-        sequence_length=1
+        num_layers,
+        num_hidden,
+        img_channel,
+        act_channel,
+        init_cond_channel,
+        static_channel,
+        out_channel,
+        number_depth_layers,
+        scale_dict=DEFAULT_SCALERS,
+        pressure_first=True,
     ):
         super().__init__()
-        self.in_features = in_features
-        self.out_features = out_features
-        self.hidden_dim = hidden_dim
-        self.sequence_length = sequence_length
-        self.lstm = nn.LSTM(
-            self.in_features,
-            self.hidden_dim,
-            nlayers,
-            dropout=dropout_prob,
-            batch_first=True
+        # TODO: don't hardcode this
+        self.dz = torch.tensor([100.0, 1.0, 0.6, 0.3, 0.1])
+        self.fstr_model = ForcedSTRNN(
+            num_layers,
+            num_hidden,
+            img_channel,
+            act_channel,
+            init_cond_channel,
+            static_channel,
+            out_channel,
         )
-        self.fc = nn.Linear(self.hidden_dim, self.out_features)
-
-    def forward(self, x):
-        """Apply the model for a given sample"""
-        out, (hn, cn) = self.lstm(x)
-        out = out[:, -self.sequence_length:, :]
-        out = self.fc(out)
-        return out
-
-    def parameters(self):
-        return list(self.lstm.parameters()) + list(self.fc.parameters())
-
-    def configure_optimizers(self, opt=torch.optim.AdamW, **kwargs):
-        optimizer = opt(self.parameters(), **kwargs)
-        return optimizer
-
-    def configure_loss(self, loss_fun=F.mse_loss):
-        self.loss_fun = loss_fun
-
-    def training_step(self, train_batch, batch_idx):
-        x, y = train_batch
-        y_hat = self.forward(x)
-        y = y[:, -self.sequence_length:, :].squeeze()
-        y_hat = y_hat.squeeze()
-
-        loss = self.loss_fun(y_hat, y)
-        self.log('train_loss', loss)
-        return loss
-
-    def validation_step(self, val_batch, batch_idx):
-        x, y = val_batch
-        y_hat = self.forward(x)
-        y = y[:, -self.sequence_length:, :].squeeze()
-        y_hat = y_hat.squeeze()
-
-        loss = self.loss_fun(y_hat, y)
-        self.log('val_loss', loss)
+        self.pressure_first = pressure_first
+        self.number_depth_layers = number_depth_layers
+        self.scale_dict = scale_dict
+        self.sat_fun = SaturationHead()
+        self.wtd_fun = torch.vmap(WaterTableDepthHead(self.dz))
+        self.flow_fun = OverlandFlowHead()
 
 
-@model_builder.register_layer('DoubleConv')
-class DoubleConv(nn.Module):
-    """(convolution => GELU) * 2"""
-
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        mid_channels=None,
-        activation=nn.GELU,
+    def forward(
+        self, 
+        forcings, 
+        init_cond, 
+        static_inputs, 
+        vgn_a,
+        vgn_n,
+        slope_x,
+        slope_y,
+        mannings,
+        dx=1000.0,
+        dy=1000.0,
     ):
-        super().__init__()
-        if not mid_channels:
-            mid_channels = out_channels
-        self.activation = activation
-        self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
-            self.activation(),
-            nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
-            self.activation(),
-        )
+        # Predicted dims should be (batch, time, channel, y, x)
+        fstr_pred = self.fstr_model(forcings, init_cond, static_inputs)
 
-    def forward(self, x):
-        return self.double_conv(x)
-
-
-@model_builder.register_layer('Down')
-class Down(nn.Module):
-    """Downscaling with maxpool then double conv"""
-
-    def __init__(self, in_channels, out_channels, activation=nn.GELU):
-        super().__init__()
-        self.maxpool_conv = nn.Sequential(
-            nn.AvgPool2d(2),
-            DoubleConv(in_channels, out_channels, activation=activation)
-        )
-
-    def forward(self, x):
-        return self.maxpool_conv(x)
-
-
-@model_builder.register_layer('Up')
-class Up(nn.Module):
-    """Upscaling then double conv"""
-
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        bilinear=True,
-        activation=nn.GELU
-    ):
-        super().__init__()
-
-        # if bilinear, use the normal convolutions to reduce the number of channels
-        if bilinear:
-            self.up = nn.Upsample(
-                scale_factor=2,
-                mode='bilinear',
-                align_corners=True
-            )
-            self.conv = DoubleConv(
-                in_channels,
-                out_channels,
-                in_channels // 2,
-                activation
-            )
+        if self.pressure_first:
+            pressure_pred = fstr_pred[:, :, :self.number_depth_layers, ...].clone()
         else:
-            self.up = nn.ConvTranspose2d(
-                in_channels,
-                in_channels // 2,
-                kernel_size=2,
-                stride=2
-            )
-            self.conv = DoubleConv(
-                in_channels,
-                out_channels,
-                activation=activation
-            )
+            pressure_pred = fstr_pred[:, :, -self.number_depth_layers:, ...].clone()
 
-    def forward(self, x1, x2):
-        x1 = self.up(x1)
-        # input is CHW
-        diffY = x2.size()[2] - x1.size()[2]
-        diffX = x2.size()[3] - x1.size()[3]
+        # Unscale the predictions
+        for i in range(self.number_depth_layers):
+            pressure_pred[:, :, i, ...] = self.scale_dict[f'pressure_{i}'].inverse_transform(pressure_pred[:, :, i, ...])
 
-        x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
-                        diffY // 2, diffY - diffY // 2])
-        # if you have padding issues, see
-        # https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
-        # https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
-        x = torch.cat([x2, x1], dim=1)
-        return self.conv(x)
+        # Calculate derived quantities
+        sat = torch.stack([
+            self.sat_fun.forward(pressure_pred[:, t], vgn_a[:, t], vgn_n[:, t])
+            for t in range(pressure_pred.shape[1])
+        ], dim=1)
 
+        # Don't need to scale saturation since it's already between 0 and 1
+        #sat = self.scale_dict['saturation'].transform(sat)
+        wtd = torch.stack([
+            self.wtd_fun(pressure_pred[:, t], sat[:, t], depth_ax=0)
+            for t in range(pressure_pred.shape[1])
+        ], dim=1)
+        wtd = self.scale_dict['water_table_depth'].transform(wtd)
+        flow = torch.stack([self.flow_fun(
+            pressure_pred[:, t],
+            slope_x[:, t],
+            slope_y[:, t],
+            mannings[:, t],
+            dx, dy, flow_method='OverlandFlow',
+        ) for t in range(pressure_pred.shape[1])], dim=1)
+        flow = self.scale_dict['streamflow'].transform(flow)
 
-@model_builder.register_layer('OutConv')
-class OutConv(nn.Module):
-    """Simple wrapper for an ouput convolution"""
-    def __init__(self, in_channels, out_channels):
-        super().__init__()
-        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size=1)
+        flow = flow.unsqueeze(2)
+        wtd = wtd.unsqueeze(2)
 
-    def forward(self, x):
-        return self.conv(x)
+        # Put the full thing back together again
+        full_pred = torch.cat([fstr_pred, wtd, flow], dim=2)
+        return full_pred
 
-
-@model_builder.register_model('UNet')
-class UNet(nn.Module):
-    """
-    A basic UNet architecture
-    """
-
-    def __init__(
-        self,
-        in_channel,
-        out_channel,
-        activation=nn.GELU,
-        bilinear=True,
-        base_channels=8
-    ):
-        super().__init__()
-        self.in_channels = in_channel
-        self.out_channels = out_channel
-        self.bilinear = bilinear
-        c = base_channels
-
-        self.inc = DoubleConv(self.in_channels, c, activation=activation)
-        self.down1 = Down(c, 2*c, activation=activation)
-        self.down2 = Down(2*c, 2*2*c, activation=activation)
-        self.down3 = Down(2*2*c, 2*2*2*c, activation=activation)
-        factor = 2 if bilinear else 1
-        self.down4 = Down(2*2*2*c, 2*2*2*2*c// factor, activation=activation)
-        self.up1 = Up(2*2*2*2*c, 2*2*2*c// factor, bilinear, activation=activation)
-        self.up2 = Up(2*2*2*c, 2*2*c// factor, bilinear, activation=activation)
-        self.up3 = Up(2*2*c, 2*c// factor, bilinear, activation=activation)
-        self.up4 = Up(2*c, c, bilinear, activation=activation)
-        self.outc = OutConv(c, self.out_channels)
-
-    def forward(self, x):
-        x1 = self.inc(x)
-        x2 = self.down1(x1)
-        x3 = self.down2(x2)
-        x4 = self.down3(x3)
-        x5 = self.down4(x4)
-        x = self.up1(x5, x4)
-        x = self.up2(x, x3)
-        x = self.up3(x, x2)
-        x = self.up4(x, x1)
-        z = self.outc(x)
-        return z
-
-@model_builder.register_layer('ConvBlock')
-class ConvBlock(nn.Module):
-
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        kernel_size,
-        activation,
-    ):
-        super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.kernel_size = kernel_size
-        self.activation = activation()
-        self.padding = int(kernel_size / 2)
-        self.conv = nn.Conv2d(
-            self.in_channels,
-            self.out_channels,
-            kernel_size=self.kernel_size,
-            padding=self.padding,
-            padding_mode='reflect'
-        )
-
-    def forward(self, x):
-        return self.activation(self.conv(x))
-
-
-@model_builder.register_layer('ResidualBlock')
-class ResidualBlock(nn.Module):
-
-    def __init__(
-        self,
-        in_channels,
-        hidden_channels,
-        out_channels,
-        kernel_size,
-        activation,
-    ):
-        super().__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.hidden_channels = hidden_channels
-        self.kernel_size = kernel_size
-        self.activation = activation()
-        self.depthwise_conv = nn.Conv2d(
-            self.in_channels,
-            self.hidden_channels,
-            kernel_size=self.kernel_size,
-            padding=int(self.kernel_size / 2),
-            padding_mode='reflect',
-            groups=self.in_channels
-        )
-        self.layer_norm = LayerNorm2D(self.hidden_channels)
-        self.pointwise_conv = nn.Conv2d(
-            self.hidden_channels,
-            self.out_channels,
-            kernel_size=1
-        )
-
-    def forward(self, x):
-        identity = x
-        out = self.depthwise_conv(x)
-        out = self.layer_norm(out)
-        out = self.pointwise_conv(out)
-        out = self.activation(out + identity)
-        return out
-
-
-@model_builder.register_model('BasicResNet')
-class BasicResNet(pl.LightningModule):
-
-    def __init__(
-        self,
-        in_channels,
-        out_channels,
-        hidden_dim=64,
-        kernel_size=5,
-        depth=1,
-        activation=nn.GELU,
-    ):
-        super().__init__()
-        self.input_channels = in_channels
-        self.hidden_dim = hidden_dim
-        self.output_channels = out_channels
-        self.kernel_size = kernel_size
-        self.depth = depth
-        self.activation = activation
-
-        self.layers = [
-            ConvBlock(
-                self.input_channels,
-                self.hidden_dim,
-                self.kernel_size,
-                self.activation,
-            )
-        ]
-        for i in range(self.depth):
-            self.layers.append(
-                ResidualBlock(
-                    self.hidden_dim,
-                    self.hidden_dim,
-                    self.hidden_dim,
-                    self.kernel_size,
-                    self.activation,
-                )
-            )
-        self.layers.append(
-            ConvBlock(
-                self.hidden_dim,
-                self.output_channels,
-                1,
-                nn.Identity
-            )
-        )
-        self.layers = nn.ModuleList(self.layers)
-
-    def forward(self, x):
-        for l in self.layers:
-            x = l(x)
-        return x
-
-
-@model_builder.register_emulator('MultiStepModel')
-class MultiStepModel(pl.LightningModule):
-    def __init__(
-        self,
-        in_channel,
-        out_channel,
-        layer_model=UNet,
-        layer_model_kwargs={},
-    ):
-        super().__init__()
-        self.in_channel = in_channel
-        self.out_channel = out_channel
-        self.model = layer_model(
-            self.in_channel,
-            self.out_channel,
-            **layer_model_kwargs
-        )
-
-    def forward(self, forcings, init_cond, static_inputs):
-        batch, timesteps, channels, height, width = forcings.shape
-
-        next_frames = []
-
-        # NOTE: init_cond and static_inputs have length=1 on time
-        x = init_cond[:, 0]
-        s = static_inputs[:, 0]
-        for t in range(timesteps):
-            f_t = forcings[:, t]
-            inp = torch.cat([f_t, s, x], dim=1)
-            out = self.model(inp)
-            x = out + x
-            next_frames.append(x)
-        next_frames = torch.stack(next_frames, dim=1)
-        return next_frames
+    def log_channel_losses(self, y_hat, y):
+        with torch.no_grad():
+            for i in range(y.shape[2]):
+                loss = self.loss_fun(y_hat[:, :, i, ...], y[:, :, i, ...])
+                self.log(f'loss_{i}', loss)
 
     def training_step(self, train_batch, train_batch_idx):
-        forcing, state, params, target = train_batch
-        y_hat = self(forcing, state, params).squeeze()
+        forcing, state, params, target, extras = train_batch
+        y_hat = self(forcing, state, params, **extras).squeeze()
         loss = self.loss_fun(y_hat, target)
-        if torch.isnan(loss):
-            print(torch.isnan(target).sum(), torch.isnan(y_hat).sum())
-            raise ValueError('Loss went nan')
-
         self.log('train_loss', loss)
+        self.log_channel_losses(y_hat, target)
         return loss
 
+
     def validation_step(self, val_batch, val_batch_idx):
-        forcing, state, params, target = val_batch
-        y_hat = self(forcing, state, params).squeeze()
+        forcing, state, params, target, extras = val_batch
+        y_hat = self(forcing, state, params, **extras).squeeze()
         loss = self.loss_fun(y_hat, target)
         self.log('val_loss', loss)
         return loss
+
 
     def configure_optimizers(
         self,
@@ -638,4 +350,7 @@ class MultiStepModel(pl.LightningModule):
         return optimizer
 
     def configure_loss(self, loss_fun=F.mse_loss):
-        self.loss_fun = loss_fun
+        self.fstr_model.configure_loss(loss_fun)
+        self.loss_fun = self.fstr_model.loss_fun
+
+

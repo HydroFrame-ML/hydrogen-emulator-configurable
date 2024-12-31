@@ -72,6 +72,8 @@ def main():
     args = parse(sys.argv[1:])
     mode = args.mode
     domain = args.domain
+
+
     assert mode in ['train', 'predict'], (
             'Mode must be either train or predict!')
     assert domain in ['surface', 'subsurface'], (
@@ -79,6 +81,12 @@ def main():
     with open(args.config, 'r') as f:
         config = json.loads(f.read())
         config['config_file'] = args.config
+        if "selectors" in config:
+            config['selectors'] = {
+                k: slice(v.get('start', 0), v.get('stop', None), v.get('step', None)) 
+                for k, v in config['selectors'].items()
+            }
+            print(config['selectors'])
     if mode == 'train' and domain == 'surface':
         emulator.train.train_model(**config)
     elif mode == 'train' and domain == 'subsurface':
@@ -89,4 +97,9 @@ def main():
         predict_subsurface(config)
 
 if __name__ == '__main__':
+    import warnings
+    import logging
+    warnings.filterwarnings('ignore', message='.*garbage collection.*')
+    logger = logging.getLogger("distributed.utils_perf")
+    logger.setLevel(logging.ERROR)
     main()
