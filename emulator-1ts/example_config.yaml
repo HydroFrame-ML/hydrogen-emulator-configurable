@@ -1,0 +1,26 @@
+name: test
+log_location: /path/to/log
+model_type: resnet # fixed for now
+optimizer: adam # fixed for now
+loss: mse # fixed for now
+n_epochs: 2 # small for testing
+batch_size: 4 # small for testing
+lr: 0.001
+num_workers: 4
+data_def:
+  data_dir: /path/to/data 
+  run_name: test_box2_conus2_2002wy # name of parflow run
+  parameter_list: [
+    'slope_x', 'slope_y', # ...
+  ],
+  patch_size: 64,
+  overlap: 16,
+  scaler_yaml: /path/to/scaler.yaml # path to scaler yaml file
+  param_nlayer: [0, 0, 1, ...]
+  n_evaptrans: 4
+model_def:
+  in_channels: 5 # Number of input channels from state_data
+  out_channels: 10 # Number of output channels (depth layers)
+  kernel_size: 3 # Kernel size for the convolutional layers
+  depth: 3 # Number of resnet blocks
+
