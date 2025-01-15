@@ -2,7 +2,7 @@ import yaml
 import torch
 
 from dataset import ParFlowDataset
-from model import create_model
+from model import get_model
 from train import train_model
 from argparse import ArgumentParser
 from utils import get_optimizer, get_loss
@@ -29,11 +29,11 @@ def train(
     **kwargs
 ):
     # TODO: 1: Check this works
-    model = create_model(model_type, model_def)
+    model = get_model(model_type, model_def)
     model = model.to(device)
     print('----------------------------------------')
     print(model)
-    print('To do: Delete if working')
+    print('To do: Delete if working1')
     print('----------------------------------------')
 
     # TODO: 1: Check this works
@@ -42,22 +42,27 @@ def train(
     print('----------------------------------------')
     print(optimizer)
     print(loss_fn)
-    print('To do: Delete if working')
+    print('To do: Delete if working2')
     print('----------------------------------------')
 
+    
     dataset = ParFlowDataset(**data_def)
     train_dl = DataLoader(
         dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
     )
     print('----------------------------------------')
     print(f'Train dataset has {len(train_dl)} batches')
-    x, y = next(iter(dataset[5]))
+    x, y = dataset[5]
+    #x, y = next(iter(dataset[5])) # This doesn't work... why? 
     print(f'Shape of first batch: {x.shape}, {y.shape}')
-    print('To do: Delete if working')
+    
+    print('To do: Delete if working3')
     print('----------------------------------------')
+    
     print(f'Train dataloader is working?')
     x, y = next(iter(train_dl))
-    print('To do: Delete if working')
+    
+    print('To do: Delete if working4')
     print('----------------------------------------')
 
     metrics = train_model(
@@ -65,7 +70,7 @@ def train(
     )
     print('----------------------------------------')
     print(metrics)
-    print('To do: Delete if working')
+    print('To do: Delete if working5')
     print('----------------------------------------')
     metrics_filename = f'{log_location}/{name}_metrics.csv'
     model_filename = f'{log_location}/{name}_model.pth'
@@ -74,7 +79,7 @@ def train(
     print('----------------------------------------')
     print(f'Metrics saved to {metrics_filename}')
     print(f'Model saved to {model_filename}')
-    print('To do: Delete if working')
+    print('To do: Delete if working6')
 
 
 def test():
@@ -84,8 +89,10 @@ def main(config, mode):
     config = read_config(config)
 
     if mode == "train":
+        print("TRAINING")
         train(**config)
     elif mode == "test":
+        print("TESTING")
         # Note: Not implemented
         test(**config)
 
