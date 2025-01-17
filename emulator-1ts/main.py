@@ -13,6 +13,18 @@ def read_config(config_path):
         config = yaml.safe_load(f)
     return config
 
+def custom_collate(batch):
+    print(len(batch))
+    #print(batch[0].shape)
+    x = []
+    y = []
+    for b in batch:
+        x.append(b[0])
+        y.append(b[1])
+    x = torch.stack(x)
+    y = torch.stack(y)
+    return x, y 
+
 def train(
     name: str,
     log_location: str,
@@ -48,11 +60,11 @@ def train(
     
     dataset = ParFlowDataset(**data_def)
     train_dl = DataLoader(
-        dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
+        dataset, batch_size=batch_size, collate_fn = custom_collate, shuffle=True, num_workers=num_workers
     )
     print('----------------------------------------')
     print(f'Train dataset has {len(train_dl)} batches')
-    x, y = dataset[5]
+    x, y = next(iter(dataset))
     #x, y = next(iter(dataset[5])) # This doesn't work... why? 
     print(f'Shape of first batch: {x.shape}, {y.shape}')
     
@@ -60,7 +72,8 @@ def train(
     print('----------------------------------------')
     
     print(f'Train dataloader is working?')
-    x, y = next(iter(train_dl))
+    #x, y = next(iter(train_dl))
+    #print(f'Shape of first batch: {x.shape}, {y.shape}')
     
     print('To do: Delete if working4')
     print('----------------------------------------')

@@ -9,8 +9,14 @@ import scalers
 
 from glob import glob
 from parflow.tools.io import read_pfb
+#from scalers import DEFAULT_SCALERS
 
 from torch.utils.data import Dataset
+
+def custom_collate(batch):
+    x = torch.stack(b[0] for b in batch)
+    y = torch.stack(b[1] for b in batch)
+    return x, y 
 
 class ParFlowDataset(Dataset):
 
@@ -29,6 +35,7 @@ class ParFlowDataset(Dataset):
         self.overlap = overlap
         self.scaler_yaml = scaler_yaml
         self.scaler = scalers.create_scalers_from_yaml(scaler_yaml)
+        #self.scaler = DEFAULT_SCALERS
 
         self.pressure_files = sorted(glob(f'{self.base_dir}/transient/pressure*.pfb')) 
         self.pressure_files = {

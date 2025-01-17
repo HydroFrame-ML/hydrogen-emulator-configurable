@@ -62,7 +62,7 @@ def train_model(
         # so that we update parameters
         model.train()
         train_metrics = train_epoch(
-            model, train_dl, opt, loss_fun, train=True, device=device, dtype=dtype
+            model, train_dl, opt, loss_fun, train=True, device=device
         )
         train_df = train_df._append(train_metrics, ignore_index=True)
         tl = train_metrics['train_loss']
@@ -72,7 +72,7 @@ def train_model(
             # the memory/computational cost
             model.eval()
             valid_metrics = train_epoch(
-                model, val_dl, opt, loss_fun, train=False, device=device, dtype=dtype
+                model, val_dl, opt, loss_fun, train=False, device=device
             )
             valid_df = valid_df._append(valid_metrics, ignore_index=True)
             vl = valid_metrics['valid_loss']

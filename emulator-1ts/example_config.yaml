@@ -6,7 +6,7 @@ loss: mse # fixed for now
 n_epochs: 2 # small for testing
 batch_size: 4 # small for testing
 lr: 0.001
-num_workers: 4
+num_workers: 1
 device: cpu
 data_def:
   data_dir: /home/lc2465/NAIRR/
