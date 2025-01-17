@@ -1,5 +1,6 @@
 import xarray as xr
 import os
+import torch
 # Need to use xbatcher from: https://github.com/arbennett/xbatcher/tree/develop
  # See readme for installation instrutions 
 import xbatcher as xb
@@ -61,7 +62,7 @@ class ParFlowDataset(Dataset):
             self.dummy_data,
             input_dims={'x': self.patch_size, 'y': self.patch_size, 'time': 1},
             input_overlap={'x': self.overlap, 'y': self.overlap},
-            return_partial=True,
+            return_partial=False,
             shuffle=True,
         )
 
@@ -139,5 +140,7 @@ class ParFlowDataset(Dataset):
         # End result is a dims of (sum(n_parameters*param_nlayer) + n_evaptrans + nz, y, x) 
         state_data = np.concatenate([state_data, evaptrans, parameter_data], axis=0)
 
-
+        # Convert everything to torch tensors
+        state_data = torch.from_numpy(state_data).float()
+        target_data = torch.from_numpy(target_data).float()
         return state_data, target_data

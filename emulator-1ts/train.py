@@ -43,7 +43,7 @@ def train_epoch(
             loss.backward()
             optimizer.step()
         
-    return loss
+    return pd.Series({f'{prefix}_loss': loss.item()})
 
 def train_model(
     model, 

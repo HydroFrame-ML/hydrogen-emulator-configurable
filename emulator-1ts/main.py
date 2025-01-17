@@ -19,6 +19,8 @@ def custom_collate(batch):
     x = []
     y = []
     for b in batch:
+        print(b[0].shape)
+        print(b[1].shape)
         x.append(b[0])
         y.append(b[1])
     x = torch.stack(x)
