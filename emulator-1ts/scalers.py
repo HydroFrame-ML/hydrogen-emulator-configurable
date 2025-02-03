@@ -138,4 +138,4 @@ def create_scalers_from_yaml(file):
     return scalers
 
 
-DEFAULT_SCALERS = create_scalers_from_yaml(DEFAULT_SCALER_PATH)
+#DEFAULT_SCALERS = create_scalers_from_yaml(DEFAULT_SCALER_PATH)

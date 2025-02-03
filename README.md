@@ -1,5 +1,17 @@
 # ParFlow Emulator for the HydroGEN project
 
+This branch is an adaptation of the original HydroGEN emulator that is modified to be a 1-timestep emulator. Many of the folders here are from the original emulator for reference. The folderst that are specific to the one timestep emulator are: 
+
+1. `emulator-1ts`: The main folder for training and running the one timestep emulator.
+2. `notebooks`: Development notebooks and a notebook to create a dummy domain.
+3. `CONUS2_Data_Prep`: Notebooks and scripts for processing CONUS2 training data to make training possible.
+
+The best way to get started with the 1TS emulator is to go to the `emulator-1ts` folder and go through that `readme`.  
+
+**NOTE:** The environment instructions bellow are correct but there have been some challenges getting everything to build the easiest approach is to run on verde using the `hydrogen-shared` enviroment. See notes in the `emulator-1ts` folder for getting started. 
+
+**NOTE:** The remainder of this readme refers to the original HydroGEN emulator for instructions on running and settign up the 1-ts emulator refer to the folders listed aboves
+
 ## Environment instructions
 At the moment creating and installing everything into a working environment takes a bit of work. These are the steps that should get you up and running. 
 

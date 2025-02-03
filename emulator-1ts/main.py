@@ -14,13 +14,13 @@ def read_config(config_path):
     return config
 
 def custom_collate(batch):
-    print(len(batch))
+    #print(len(batch))
     #print(batch[0].shape)
     x = []
     y = []
     for b in batch:
-        print(b[0].shape)
-        print(b[1].shape)
+        #print(b[0].shape)
+        #print(b[1].shape)
         x.append(b[0])
         y.append(b[1])
     x = torch.stack(x)
@@ -42,23 +42,11 @@ def train(
     num_workers: int,
     **kwargs
 ):
-    # TODO: 1: Check this works
     model = get_model(model_type, model_def)
-    model = model.to(device)
-    print('----------------------------------------')
-    print(model)
-    print('To do: Delete if working1')
-    print('----------------------------------------')
+    model = model.to(device)  
 
-    # TODO: 1: Check this works
     optimizer = get_optimizer(optimizer, model, lr)
     loss_fn = get_loss(loss)
-    print('----------------------------------------')
-    print(optimizer)
-    print(loss_fn)
-    print('To do: Delete if working2')
-    print('----------------------------------------')
-
     
     dataset = ParFlowDataset(**data_def)
     train_dl = DataLoader(
@@ -70,23 +58,16 @@ def train(
     #x, y = next(iter(dataset[5])) # This doesn't work... why? 
     print(f'Shape of first batch: {x.shape}, {y.shape}')
     
-    print('To do: Delete if working3')
-    print('----------------------------------------')
-    
-    print(f'Train dataloader is working?')
     #x, y = next(iter(train_dl))
     #print(f'Shape of first batch: {x.shape}, {y.shape}')
-    
-    print('To do: Delete if working4')
-    print('----------------------------------------')
 
     metrics = train_model(
         model, train_dl, optimizer, loss_fn, n_epochs, device=device
     )
     print('----------------------------------------')
     print(metrics)
-    print('To do: Delete if working5')
     print('----------------------------------------')
+    
     metrics_filename = f'{log_location}/{name}_metrics.csv'
     model_filename = f'{log_location}/{name}_model.pth'
     metrics.to_csv(metrics_filename)
@@ -94,7 +75,6 @@ def train(
     print('----------------------------------------')
     print(f'Metrics saved to {metrics_filename}')
     print(f'Model saved to {model_filename}')
-    print('To do: Delete if working6')
 
 
 def test():

@@ -48,7 +48,7 @@ class ParFlowDataset(Dataset):
         self.X_EXTENT = self.size_test.shape[2] 
         self.Y_EXTENT = self.size_test.shape[1]
         self.Z_EXTENT = self.size_test.shape[0]
-        self.T_EXTENT = 1 #Change this to the number of timesteps -- should this be input up top?
+        self.T_EXTENT = len(self.pressure_files['t'])
       
         # Create a dummy dataset that will be used to pull indices for reading subsets of the data
         self.dummy_data = xr.Dataset().assign_coords({
