@@ -19,12 +19,14 @@ This folder contains the scripts for the one time step emulator. The goal of thi
 To run on verde: 
 1. Lauch an interactive *Jupyter Lab* session and selece `hydrogen-shared` as the anaconda version.
 
-To run python scripts: 
+*To run python scripts:* 
 1. Start a terminal session from jupyter lab (`file/new/termnial`)
 2. If the terminal prompt says `(base) (hydrogen-shared)` you will need to deactivate the base enviroment with `conda deactivate` you should then just see the prompt say `(hydrogen-shared)`
 
-To run Jupyter Notebooks: 
+*To run Jupyter Notebooks:* 
 Select `Python3` as the kernel and then you shoudl be good to run
+
+*Note:* From other enviroments you can also use `module load hydrogen-shared` to load this enviroment. 
 
 ## How to run a traning run
 From terminal: `python main.py --config example_config.yaml --mode train`
@@ -35,5 +37,11 @@ From terminal: `python main.py --config example_config.yaml --mode train`
     - Evaptrans files need to be created for the entire run that we will be subsetting from.
     - Scaling factors should be recalcualted (although these likely wont change much).
 2.  Update the paths for subsetting in  `notebooks/make_subset_domain.ipynb` so that its using the latest CONUS2.1 2003 run for training
-3. Investigate why the initial losses are so high: Adding more time steps cut the initial loss down from 1e12 to 1e9, getting rid of all the tiny standar deviations made no difference and cutting out all the constant layers also made no difference. Next step: print mean and stdev values from the subest domain and see how they compare to the scalers file. Goal- We would like to have the initial loss down to ~1
-4. Once the initail looses are more reasonable we will need to setup a testing run too. A good first test would be the same locaton but a different point in time (we have little expectation that it will do good on a different location just yet since we are training on a very small subset)
+    - Change patches to be nx=63 by ny=67  (CONUS2.Process.Topology.P = 70
+CONUS2.Process.Topology.Q = 48
+CONUS2.Process.Topology.R = 1
+CONUS2.ComputationalGrid.NX = 4442
+CONUS2.ComputationalGrid.NY = 3256
+CONUS2.ComputationalGrid.NZ = 10)
+4. Investigate why the initial losses are so high: Adding more time steps cut the initial loss down from 1e12 to 1e9, getting rid of all the tiny standar deviations made no difference and cutting out all the constant layers also made no difference. Next step: print mean and stdev values from the subest domain and see how they compare to the scalers file. Goal- We would like to have the initial loss down to ~1
+5. Once the initail looses are more reasonable we will need to setup a testing run too. A good first test would be the same locaton but a different point in time (we have little expectation that it will do good on a different location just yet since we are training on a very small subset)

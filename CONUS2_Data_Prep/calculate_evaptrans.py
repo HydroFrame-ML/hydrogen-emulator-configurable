@@ -14,7 +14,10 @@ hf.register_api_pin(email, pin)
 
 #directory with the root fracs and netcdfs for testing
 working_dir = "./evap_trans_test" 
-root_frac_dir = "/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/calculated_evaptrans"
+#evaptrans_dir = "/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/calculated_evaptrans"
+evaptrans_dir = "/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/calculated_evaptrans"
+run_dir = "/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/raw_outputs"
+
 
 #Set this to false if you don't want to regenerate the evaptrans pdfs
 # i.e. if you are just doing comparison with the netcdf files for testing
@@ -24,7 +27,7 @@ run_calcs = True
 dz_list = [0.1, 0.3, 0.6, 1.0, 5.0, 10.0, 25.0, 50.0, 100.0, 200.0]
 
 #number of layers the root zone is distributed over in PF-CLM coupling
-nroot_lay = 4 
+nroot_lay = 5 
 
 #hour start and end for runn
 hstart = 1
@@ -43,7 +46,7 @@ top_depth = np.append(0, np.cumsum(dz_list)) #Top depth of each layer
 root_fracs=np.zeros((nroot_lay, ny, nx))
 for layer in range(nroot_lay):
     #fin=os.path.join(working_dir, f'root_zone_frac_layer{layer}_{top_depth[layer]}-{top_depth[layer+1]}.pfb')
-    fin=os.path.join(root_frac_dir, f'root_zone_frac_layer{layer}_{top_depth[layer]}-{top_depth[layer+1]}.pfb')
+    fin=os.path.join(evaptrans_dir, f'root_zone_frac_layer{layer}_{top_depth[layer]}-{top_depth[layer+1]}.pfb')
     root_fracs[layer,:,:] = read_pfb(fin)
     print(np.mean(root_fracs[layer,:,:]))
 
@@ -60,6 +63,9 @@ options = {
 top_patch = hf.get_gridded_data(options)
 print(top_patch.shape)
 
+#Layer numbers in CLM file
+# Description of layers provide in water balance cell here
+#https://github.com/hydroframe/parflow_python_shortcourse/blob/main/exercises/pfclm_sc/PFCLM_SC_water_balance.ipynb
 ltran = 8  #Layer of tran_veg in the clm_file
 linfl = 9 #Layer of qflux_infl in the clm file
 
@@ -72,10 +78,11 @@ if run_calcs:
         evap_trans = np.zeros((nz, ny, nx))
 
         #Read in the clm outputs
-        fin1 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.clm_output.{wy_hour:05d}.C.pfb"
+       # fin1 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.clm_output.{wy_hour:05d}.C.pfb"
+        fin1 = os.path.join(run_dir, f'spinup.wy{wy}.out.clm_output.{wy_hour:05d}.C.pfb')
+        print(fin1)
         tran_veg = read_pfb(fin1, keys={'z': {'start': ltran, 'stop': (ltran+1),}})[0,::]
         infl = read_pfb(fin1, keys={'z': {'start': linfl, 'stop': (linfl+1),}})[0,:,:]
-
         # Calculate the evaptrans in the first layer
         # evap_trans[z] = qflx_tran_veg * rootfr[z] + qflx_infl + qflx_qirr_inst[z]
         # *3.6 because 1 mm/s = 3.6 m/hr
@@ -93,11 +100,11 @@ if run_calcs:
             evap_trans[(9-l), :, :] = (- tran_veg * root_fracs[l,:,:]) * mask * 3.6 /dz_list[l] # Assuming qirr=0
         
         #Write it out as a pfb
-        write_dir = "/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/calculated_evaptrans"
-        fout = os.path.join(write_dir, f'calculated_evaptrans.{wy_hour:05d}.pfb')
+        #write_dir = "/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/calculated_evaptrans"
+        fout = os.path.join(evaptrans_dir, f'calculated_evaptrans.{wy_hour:05d}.pfb')
         write_pfb(fout, evap_trans, dist=False, p=72, q=48, r=1)
     
-    print(tran_veg.shape)
-    print(np.sum(tran_veg[mask==1]), np.sum(infl[mask==1]))
+        print(tran_veg.shape)
+        print(np.sum(tran_veg[mask==1]), np.sum(infl[mask==1]))
 else:
     print("Not recalculating the EvapTrans files")
