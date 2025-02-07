@@ -10,7 +10,7 @@ This folder contains the scripts for the one time step emulator. The goal of thi
 - `main.py`: this is the main script that does the training. It call all the other classes and functions.
 
 ## Before you start: 
-- In order to run a training run you first need to generate a set of test data. You can do that using `notebooks/make_subset_domain.ipynb`
+- In order to run a training run you first need to generate a set of test data. You can do that using `notebooks/make_subset_domain*.ipynb`
 - You will also need to adjust the `example.config.yaml` to reflect your local paths and run names.
     - **Note**: The`in_channels` should equal the total number of layers you are using from your parameter list + n_evaptrans (# of evaptrans layers being used) + 10 (#of layers in a perssure file). (For example, if your input parameter list is slopex, slopey and permeabilityx and you use all layers from these files and have 4 evaptrans layers  then the in_channels will be 1+1+10+4+10 = 26)
 - You may need to adjust the `default_scalers.yaml` file but these are caculated for CONUS2 so they should be good to use as is and don't need to be adjusted every single time. 
@@ -31,17 +31,20 @@ Select `Python3` as the kernel and then you shoudl be good to run
 ## How to run a traning run
 From terminal: `python main.py --config example_config.yaml --mode train`
 
-## Next steps: 
-1. Redo the CONUS2 data processing for CONUS2.1 (Scripts int `CONUS2_Data_Prep` folder):
-    - The root fracs need to be re-calculated for 5 layers and with the new landcover map
-    - Evaptrans files need to be created for the entire run that we will be subsetting from.
-    - Scaling factors should be recalcualted (although these likely wont change much).
-2.  Update the paths for subsetting in  `notebooks/make_subset_domain.ipynb` so that its using the latest CONUS2.1 2003 run for training
-    - Change patches to be nx=63 by ny=67  (CONUS2.Process.Topology.P = 70
-CONUS2.Process.Topology.Q = 48
-CONUS2.Process.Topology.R = 1
-CONUS2.ComputationalGrid.NX = 4442
-CONUS2.ComputationalGrid.NY = 3256
-CONUS2.ComputationalGrid.NZ = 10)
-4. Investigate why the initial losses are so high: Adding more time steps cut the initial loss down from 1e12 to 1e9, getting rid of all the tiny standar deviations made no difference and cutting out all the constant layers also made no difference. Next step: print mean and stdev values from the subest domain and see how they compare to the scalers file. Goal- We would like to have the initial loss down to ~1
-5. Once the initail looses are more reasonable we will need to setup a testing run too. A good first test would be the same locaton but a different point in time (we have little expectation that it will do good on a different location just yet since we are training on a very small subset)
+## CONUS2.1 Update progress: 
+- Done: 
+    - Root fracs need have been re-calculated for 5 layers and with the new landcover map
+    - Evaptrans have been claculated using this root zone mapping for CONUS2.1 WY2003 V2
+      
+- In progress:
+    - Re-calculating the scalers (Evaptrans and pressure done, waiting on the new slopes and alpah and n to do the static scalers for CONUS2.1)
+    - Calculting pressure scalers based on actual values not the pressure differences.
+    - Creating a new `notebooks/make_subset_domain*.ipynb` that can subset from CONUS2.1 and that has rectangular rather than square patches (should be 63 by 67)
+      
+## Debugging next steps
+1. Investigate why the initial losses are so high: Adding more time steps cut the initial loss down from 1e12 to 1e9, getting rid of all the tiny standar deviations made no difference and cutting out all the constant layers also made no difference. Next step: print mean and stdev values from the subest domain and see how they compare to the scalers file. Goal- We would like to have the initial loss down to ~1
+2. Once the initail looses are more reasonable we will need to setup a testing run too. A good first test would be the same locaton but a different point in time (we have little expectation that it will do good on a different location just yet since we are training on a very small subset)
+
+## Other things to add/change: 
+1. Change the inputs so the number of layers used and the parameter list is a dictionary and not two separate lists.
+2. Make a copy of the config file where the model is saved for documentation purposes. 

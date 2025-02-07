@@ -1,4 +1,4 @@
-# Calculating mean and standard deviations of pressure deltas 
+# Calculating mean and standard deviations of evapotranspiration files 
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -35,8 +35,7 @@ wy=2003
 nz=10
 hend= 8760 #hour to end at to do short test runs, set to 8760 to do the entire year
 
-# Calculate the mean hourly pressure difference for every layer
-# Loop through the year and get the delta pressures and calculate the mean
+# Calculate the mean hourly evaptrans for every layer
 #Initialize some variables
 wy_hour=interval + 5
 et_sum = np.zeros(nz)
@@ -45,7 +44,8 @@ hour_count = 0
 while wy_hour<=hend:
     print(wy_hour)
     
-    fin1 =  f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/calculated_evaptrans/calculated_evaptrans.{wy_hour:05d}.pfb"
+    #fin1 =  f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/calculated_evaptrans/calculated_evaptrans.{wy_hour:05d}.pfb"
+    fin1 =  f"/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/calculated_evaptrans/calculated_evaptrans.{wy_hour:05d}.pfb"
     et1 = read_pfb(fin1)
 
     for z in range(nz):
@@ -57,8 +57,7 @@ while wy_hour<=hend:
 
 et_mean = et_sum/(np.sum(mask)*hour_count)
 
-# Calculate the standard deviation of hourly pressure differences
-# Loop through the year and get the delta pressures and calculate the mean
+# Calculate the standard deviation of evaptrans
 #Initialize some variables
 wy_hour=interval +5
 numerator = np.zeros(nz)
@@ -67,7 +66,8 @@ hour_count = 0
 while wy_hour<=hend:
     print(wy_hour)
     
-    fin1 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/calculated_evaptrans/calculated_evaptrans.{wy_hour:05d}.pfb"
+   # fin1 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/calculated_evaptrans/calculated_evaptrans.{wy_hour:05d}.pfb"
+    fin1 = f"/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/calculated_evaptrans/calculated_evaptrans.{wy_hour:05d}.pfb"
     et1 = read_pfb(fin1)
 
     for z in range(nz):
@@ -80,14 +80,14 @@ while wy_hour<=hend:
 et_stdev = (numerator/(np.sum(mask)*hour_count))** 0.5
 
 # Save as CSV and YAML
-fout = 'et_scalers_' + str(interval) + 'hour.csv'
+fout = 'CONUS2.1_et_scalers_' + str(interval) + 'hour.csv'
 row_names = ['layer_'+str(val) for val in range(nz)]
 df=pd.DataFrame({'Name':row_names, 'Mean': et_mean, 'stdev': et_stdev})
 df.set_index('Name')
 df.to_csv(fout, index=False)
 
 # Save as YAML
-fout_et = 'et_scalers_' + str(interval) + 'hour.yaml'
+fout_et = 'CONUS2.1_et_scalers_' + str(interval) + 'hour.yaml'
 with open(fout_et, 'w') as file:
     yaml.dump(df.to_dict(orient='records'), file, sort_keys=False)
     

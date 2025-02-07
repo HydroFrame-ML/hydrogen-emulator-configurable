@@ -30,6 +30,7 @@ print(np.sum(mask))
 # WY 2003 is the only transient year available for CONUS2 
 # NZ is the number of layers in CONUS2
 
+diff = False #Set to true if you want to calculate scalers for pressure differences False if you just want to do it on the pressures themselves
 interval = 5 #picking a prime number here to ensure we don't grab the same time of day consistently
 wy=2003
 nz=10
@@ -44,13 +45,30 @@ hour_count = 0
 
 while wy_hour<=hend:
     print(wy_hour)
-    
+
+    #CONUS2.0 File Path
     fin1 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.press.{wy_hour:05d}.pfb"
-    fin0 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.press.{(wy_hour-1):05d}.pfb"
-    p1 = read_pfb(fin1)
-    p0 = read_pfb(fin0)
-    #print("read", fin1, " and ", fin0)
-    pdif = p1 - p0
+
+    #CONUS2.1 File path
+    #fin1= f"/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/raw_outputs/spinup.wy{wy}.out.press.{wy_hour:05d}.pfb"
+    
+
+    if diff:
+        print("calculating mean for pressure diffs")
+        #CONUS2.0 File path
+        fin0 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.press.{(wy_hour-1):05d}.pfb"
+
+        #CONUS2.1 file path
+        #fin0 = f"/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/raw_outputs/spinup.wy{wy}.out.press.{(wy_hour-1):05d}.pfb"
+    
+        p1 = read_pfb(fin1)
+        p0 = read_pfb(fin0)
+        #print("read", fin1, " and ", fin0)
+        pdif = p1 - p0
+    else:
+        print("calculating mean for pressure")
+        pdif = read_pfb(fin1)
+        
 
     for z in range(nz):
         pdif_z = pdif[z,:,:] 
@@ -72,14 +90,30 @@ hour_count = 0
 
 while wy_hour<=hend:
     print(wy_hour)
-    
-    fin1 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.press.{wy_hour:05d}.pfb"
-    fin0 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.press.{(wy_hour-1):05d}.pfb"
-    p1 = read_pfb(fin1)
-    p0 = read_pfb(fin0)
-    pdif = (p1 - p0)
 
-    #Q's: 1) Could I avoid creating pdif_z, 2)could I avoid the for loop
+    #CONUS2.0 file path
+    fin1 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.press.{wy_hour:05d}.pfb"
+
+    #CONUS2.1 File path
+    #fin1= f"/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/raw_outputs/spinup.wy{wy}.out.press.{wy_hour:05d}.pfb"
+
+    if diff: 
+        print("Calculating stdev for pressure differences")
+        # CONUS2.0 file path
+        fin0 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.press.{(wy_hour-1):05d}.pfb"
+        # CONUS 2.1 file path
+        #fin0 = f"/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/raw_outputs/spinup.wy{wy}.out.press.{(wy_hour-1):05d}.pfb"
+
+
+        p1 = read_pfb(fin1)
+        p0 = read_pfb(fin0)
+        pdif = (p1 - p0)
+
+    else:
+        print("Calculating stdev for pressure")
+        pdif = read_pfb(fin1)
+
+
     #calculate a running sum of (pdif - pdif_mean)^2 for every layer
     for z in range(nz):
         pdif_mean_z = (pdif[z,:,:] - pdif_mean[z]) **2
@@ -93,14 +127,23 @@ print(pdif_stdev)
 print(pdif_mean)
 
 # Save as CSV and YAML
-fout = 'pressure_difference_scalers_' + str(interval) + 'hour.csv'
+if diff:
+    fout = 'CONUS2.0_pressure_difference_scalers_' + str(interval) + 'hour.csv'
+    fout_yml = 'CONUS2.0_pressure_difference_scalers_' + str(interval) + 'hour.yaml'
+    print(fout, fout_yml)
+else:
+    fout = 'CONUS2.0_pressure_scalers_' + str(interval) + 'hour.csv'
+    print(fout)
+    fout_yml = 'CONUS2.0_pressure_scalers_' + str(interval) + 'hour.yaml'
+    print(fout, fout_yml)
+
+#Save as cvs
 row_names = ['layer_'+str(val) for val in range(nz)]
 df=pd.DataFrame({'Name':row_names, 'Mean': pdif_mean, 'stdev': pdif_stdev})
 df.set_index('Name')
-df.to_csv(fout, index=False)
+#df.to_csv(fout, index=False)
 
 # Save as YAML
-fout_yml = 'pressure_difference_scalers_' + str(interval) + 'hour.yaml'
-with open(fout_yml, 'w') as file:
-    yaml.dump(df.to_dict(orient='records'), file, sort_keys=False)
+#with open(fout_yml, 'w') as file:
+#    yaml.dump(df.to_dict(orient='records'), file, sort_keys=False)
     
