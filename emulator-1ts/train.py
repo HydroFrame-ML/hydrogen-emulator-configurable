@@ -18,22 +18,25 @@ def train_epoch(
     # TODO: Track losses
     prefix = 'train' if train else 'valid'
     for i, batch in enumerate(dataset):
-        x, y = batch
-        x = x.to(device=device, non_blocking=True)
+        state, evaptrans, params, y = batch
+        state = state.to(device=device, non_blocking=True)
+        evaptrans = evaptrans.to(device, non_blocking=True)
+        params = params.to(device, non_blocking=True)
         y = y.to(device=device, non_blocking=True)
         y = y.squeeze()
-        if not len(x): continue
+
+        if not len(state): continue
         optimizer.zero_grad()
         if train:
-            yhat = model(x).squeeze()
+            yhat = model(state, evaptrans, params).squeeze()
         else:
             # Don't compute gradients
             # Saves on computation
             with torch.no_grad():
-                yhat = model(x).squeeze()
+                yhat = model(state, evaptrans, params).squeeze()
         if torch.isnan(yhat).any():
             print()
-            print(torch.isnan(x).sum(), torch.isnan(yhat).sum())
+            print(torch.isnan(state).sum(), torch.isnan(yhat).sum())
             print()
             raise ValueError(
                 f'Predictions went nan! Nans in input: {torch.isnan(x).sum()}'

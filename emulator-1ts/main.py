@@ -13,19 +13,19 @@ def read_config(config_path):
         config = yaml.safe_load(f)
     return config
 
+
 def custom_collate(batch):
-    #print(len(batch))
-    #print(batch[0].shape)
-    x = []
-    y = []
+    s, e, p, y = [], [], [], []
     for b in batch:
-        #print(b[0].shape)
-        #print(b[1].shape)
-        x.append(b[0])
-        y.append(b[1])
-    x = torch.stack(x)
+        s.append(b[0])
+        e.append(b[1])
+        p.append(b[2])
+        y.append(b[3])
+    s = torch.stack(s)
+    e = torch.stack(e)
+    p = torch.stack(p)
     y = torch.stack(y)
-    return x, y 
+    return s, e, p, y
 
 def train(
     name: str,
@@ -42,24 +42,29 @@ def train(
     num_workers: int,
     **kwargs
 ):
+    # Create the data loader
+    dataset = ParFlowDataset(**data_def)
+    train_dl = DataLoader(
+        dataset, 
+        batch_size=batch_size, 
+        collate_fn=custom_collate, 
+        shuffle=True, 
+        num_workers=num_workers
+    )
+
+
+    # Create the model
+    # Add names of model inputs to model definition for scaling, if needed
+    model_def['pressure_names'] = dataset.PRESSURE_NAMES
+    model_def['evaptrans_names'] = dataset.EVAPTRANS_NAMES
+    model_def['param_names'] = dataset.PARAM_NAMES
     model = get_model(model_type, model_def)
     model = model.to(device)  
 
+
+    # Create the optimizer and loss function
     optimizer = get_optimizer(optimizer, model, lr)
     loss_fn = get_loss(loss)
-    
-    dataset = ParFlowDataset(**data_def)
-    train_dl = DataLoader(
-        dataset, batch_size=batch_size, collate_fn = custom_collate, shuffle=True, num_workers=num_workers
-    )
-    print('----------------------------------------')
-    print(f'Train dataset has {len(train_dl)} batches')
-    x, y = next(iter(dataset))
-    #x, y = next(iter(dataset[5])) # This doesn't work... why? 
-    print(f'Shape of first batch: {x.shape}, {y.shape}')
-    
-    #x, y = next(iter(train_dl))
-    #print(f'Shape of first batch: {x.shape}, {y.shape}')
 
     metrics = train_model(
         model, train_dl, optimizer, loss_fn, n_epochs, device=device

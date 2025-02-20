@@ -11,7 +11,7 @@ import torch.nn.functional as F
 import utils
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_SCALER_PATH = f'{HERE}/default_scalers.yaml'
+DEFAULT_SCALER_PATH = f'{HERE}/default_scalers_adjusted.yaml'
 
 
 def from_pickle(pickled_dict):
@@ -138,4 +138,4 @@ def create_scalers_from_yaml(file):
     return scalers
 
 
-#DEFAULT_SCALERS = create_scalers_from_yaml(DEFAULT_SCALER_PATH)
+DEFAULT_SCALERS = create_scalers_from_yaml(DEFAULT_SCALER_PATH)

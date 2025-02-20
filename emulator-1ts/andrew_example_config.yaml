@@ -3,23 +3,24 @@ log_location: /home/ab6361/hydrogen_workspace/hydrogen-emulator-1ts
 model_type: resnet # fixed for now
 optimizer: adam # fixed for now
 loss: mse # fixed for now
-n_epochs: 2 # small for testing
+n_epochs: 20 # small for testing
 batch_size: 4 # small for testing
 lr: 0.001
 num_workers: 1
-device: cpu
+device: cuda:0
 data_def:
   data_dir: /home/ab6361/hydrogen_workspace/hydrogen-emulator-1ts/
   run_name: test_box2_conus2_2002WY # name of parflow run
   parameter_list: ['slope_x', 'slope_y', 'permeability_x', 'permeability_y' , 'permeability_z', 'porosity', 'pf_flowbarrier', 'mannings', 'specific_storage', 'sres' , 'ssat']
   patch_size: 16
   overlap: 4
-  scaler_yaml: /home/ab6361/hydrogen_workspace/hydrogen-emulator-1ts/notebooks/default_scalers.yaml # path to scaler yaml file
-  param_nlayer: [0, 0, 0, 0, 0, 0, 0, 0, 0,0,0]
+  #param_nlayer: [0, 0, 0, 0, 0, 0, 0, 0, 0,0,0]
+  param_nlayer: [0, 0, 3, 3, 3, 0, 0, 0, -5] #Number of layers to use for each file in the parameter lis (0= use all, -n = n top layers, +n = n bottom layers)
   n_evaptrans: 4
 model_def:
-  in_channels: 97 # Number of input channels from state_data
+  in_channels: 51 # Number of input channels from state_data
   out_channels: 10 # Number of output channels (depth layers)
   kernel_size: 3 # Kernel size for the convolutional layers
-  depth: 3 # Number of resnet blocks
+  hidden_dim: 64 # Number of filters in the convolutional layers
+  depth: 1 # Number of resnet blocks
 

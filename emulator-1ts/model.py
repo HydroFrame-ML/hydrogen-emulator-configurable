@@ -1,6 +1,7 @@
 import torch
 import torch.nn.functional as F
 from torch import nn
+from scalers import DEFAULT_SCALERS
 
 def get_model(
     model_name,
@@ -99,6 +100,10 @@ class ResNet(torch.nn.Module):
         kernel_size=5,
         depth=1,
         activation=nn.GELU,
+        scalers=DEFAULT_SCALERS,
+        pressure_names=None,
+        evaptrans_names=None,
+        param_names=None
     ):
         super().__init__()
         self.input_channels = in_channels
@@ -107,6 +112,10 @@ class ResNet(torch.nn.Module):
         self.kernel_size = kernel_size
         self.depth = depth
         self.activation = activation
+        self.scalers = scalers
+        self.pressure_names = pressure_names
+        self.evaptrans_names = evaptrans_names
+        self.param_names = param_names
 
         self.layers = [
             ConvBlock(
@@ -136,7 +145,70 @@ class ResNet(torch.nn.Module):
         )
         self.layers = nn.ModuleList(self.layers)
 
-    def forward(self, x):
+    #@torch.jit.script_method
+    def scale_pressure(self, x):
+        # Dims are (batch, z, y, x)
+        for i in range(x.shape[1]):
+            mu = self.scalers[f'press_diff_{i}'].mean
+            sigma = self.scalers[f'press_diff_{i}'].std
+            x[:, i, :, :] = (x[:, i, :, :] - mu) / sigma
+    
+    #@torch.jit.script_method
+    def unscale_pressure(self, x):
+        # Dims are (batch, z, y, x)
+        for i in range(x.shape[1]):
+            mu = self.scalers[f'press_diff_{i}'].mean
+            sigma = self.scalers[f'press_diff_{i}'].std
+            x[:, i, :, :] = x[:, i, :, :] * sigma + mu
+    
+    #@torch.jit.script_method
+    def scale_evaptrans(self, x):
+        # Dims are (batch, z, y, x)
+        for i, name in enumerate(self.evaptrans_names):
+            mu = self.scalers[name].mean
+            sigma = self.scalers[name].std
+            x[:, i, :, :] = (x[:, i, :, :] - mu) / sigma
+    
+    #@torch.jit.script_method
+    def unscale_evaptrans(self, x):
+        # Dims are (batch, z, y, x)
+        for i, name in enumerate(self.evaptrans_names):
+            mu = self.scalers[name].mean
+            sigma = self.scalers[name].std
+            x[:, i, :, :] = x[:, i, :, :] * sigma + mu
+    
+    #@torch.jit.script_method
+    def scale_statics(self, x):
+        for i, name in enumerate(self.param_names):
+            mu = self.scalers[name].mean
+            sigma = self.scalers[name].std
+            x[:, i, :, :] = (x[:, i, :, :] - mu) / sigma
+
+    
+    #@torch.jit.script_method
+    def unscale_statics(self, x):
+        for i, name in enumerate(self.param_names):
+            mu = self.scalers[name]['mean']
+            sigma = self.scalers[name]['std']
+            x[:, i, :, :] = x[:, i, :, :] * sigma + mu
+
+    #@torch.jit.script_method
+    def forward(self, pressure, evaptrans, statics):
+        # Scale the data
+        self.scale_pressure(pressure)
+        self.scale_evaptrans(evaptrans)
+        self.scale_statics(statics)
+
+        # Concatenate the data
+        x = torch.cat([pressure, evaptrans, statics], dim=1)
+
         for l in self.layers:
             x = l(x)
+
+        # Unscale the data
+        self.unscale_pressure(pressure)
         return x
+
+    def save_model(self, output_path):
+       torch.jit.save(self, output_path)
+
