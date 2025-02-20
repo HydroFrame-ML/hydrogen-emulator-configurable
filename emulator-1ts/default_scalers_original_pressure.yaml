@@ -411,45 +411,45 @@ vg_n_9:
   std: 0.4288453859352049
   type: StandardScaler 
 press_diff_0:
-  mean: -2.8628012241080942e-06
-  std: 3.2339409258506475e-05
-  type: StandardScaler 
+  mean: 258.7368423491928
+  std: 74.98627289604359
+  type: StandardScaler
 press_diff_1:
-  mean: -7.363112722386313e-06
-  std: 4.895062380811989e-05
-  type: StandardScaler 
+  mean: 117.33910207332619
+  std: 49.54174194477283
+  type: StandardScaler
 press_diff_2:
-  mean: -9.89689384079266e-06
-  std: 0.00014523574353576493
-  type: StandardScaler 
+  mean: 51.15809761945403
+  std: 30.310832172334642
+  type: StandardScaler
 press_diff_3:
-  mean: -1.2930509776494399e-05
-  std: 0.0009157284939557876
-  type: StandardScaler 
+  mean: 20.702356108266272
+  std: 18.90608212058962
+  type: StandardScaler
 press_diff_4:
-  mean: -2.8912415703948624e-05
-  std: 0.005673226060262221
-  type: StandardScaler 
+  mean: 7.629335499124725
+  std: 12.696314464180576
+  type: StandardScaler
 press_diff_5:
-  mean: -4.923728267176383e-05
-  std: 0.016125804039281967
-  type: StandardScaler 
+  mean: 1.8320520703136405
+  std: 5.535658851720356
+  type: StandardScaler
 press_diff_6:
-  mean: -5.971029267129808e-05
-  std: 0.025255006205464125
-  type: StandardScaler 
+  mean: 0.08764850421438337
+  std: 1.6512017743428262
+  type: StandardScaler
 press_diff_7:
-  mean: -5.735345201960421e-05
-  std: 0.028099269393790607
-  type: StandardScaler 
+  mean: -0.4468709425926178
+  std: 1.1914125037611953
+  type: StandardScaler
 press_diff_8:
-  mean: -5.926497061153013e-05
-  std: 0.030116205998286964
-  type: StandardScaler 
+  mean: -0.7855759629363428
+  std: 1.0677179271594686
+  type: StandardScaler
 press_diff_9:
-  mean: -4.026444792345023e-05
-  std: 0.03604686782483403
-  type: StandardScaler 
+  mean: -0.9461093088932417
+  std: 1.034429261420205
+  type: StandardScaler
 evaptrans_0:
   mean: 0.0
   std: 0.0

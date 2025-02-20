@@ -1,10 +1,10 @@
 slope_x:
-  mean: -0.00014461726086569614
-  std: 0.05228427001253284
+  mean: -0.00014243526463185378
+  std: 0.05228800257595006
   type: StandardScaler
 slope_y:
-  mean: 5.423068794933888e-05
-  std: 0.04910971504258627
+  mean: 5.468095505156963e-05
+  std: 0.04911022991988394
   type: StandardScaler
 permeability_x_0:
   mean: 0.005564784791405581
@@ -330,6 +330,86 @@ ssat_9:
   mean: 1.0
   std: 1.0
   type: StandardScaler
+vg_alpha_0:
+  mean: 0.5
+  std: 1.0
+  type: StandardScaler
+vg_alpha_1:
+  mean: 0.5
+  std: 1.0
+  type: StandardScaler
+vg_alpha_2:
+  mean: 0.5
+  std: 1.0
+  type: StandardScaler
+vg_alpha_3:
+  mean: 0.5
+  std: 1.0
+  type: StandardScaler
+vg_alpha_4:
+  mean: 0.5
+  std: 1.0
+  type: StandardScaler
+vg_alpha_5:
+  mean: 0.5
+  std: 1.0
+  type: StandardScaler
+vg_alpha_6:
+  mean: 1.678361939394279
+  std: 0.9241990235872068
+  type: StandardScaler
+vg_alpha_7:
+  mean: 1.6143190959480411
+  std: 1.018011821386368
+  type: StandardScaler
+vg_alpha_8:
+  mean: 1.6143190959480411
+  std: 1.018011821386368
+  type: StandardScaler
+vg_alpha_9:
+  mean: 1.6143190959480411
+  std: 1.018011821386368
+  type: StandardScaler
+vg_n_0:
+  mean: 2.5
+  std: 1.0
+  type: StandardScaler
+vg_n_1:
+  mean: 2.5
+  std: 1.0
+  type: StandardScaler
+vg_n_2:
+  mean: 2.5
+  std: 1.0
+  type: StandardScaler
+vg_n_3:
+  mean: 2.5
+  std: 1.0
+  type: StandardScaler
+vg_n_4:
+  mean: 2.5
+  std: 1.0
+  type: StandardScaler
+vg_n_5:
+  mean: 2.5
+  std: 1.0
+  type: StandardScaler
+vg_n_6:
+  mean: 2.5852133723120954
+  std: 0.4649677659155352
+  type: StandardScaler
+vg_n_7:
+  mean: 2.6223121682482833
+  std: 0.4288453859352049
+  type: StandardScaler
+vg_n_8:
+  mean: 2.6223121682482833
+  std: 0.4288453859352049
+  type: StandardScaler
+vg_n_9:
+  mean: 2.6223121682482833
+  std: 0.4288453859352049
+  type: StandardScaler 
 press_diff_0:
   mean: -2.8628012241080942e-06
   std: 3.2339409258506475e-05

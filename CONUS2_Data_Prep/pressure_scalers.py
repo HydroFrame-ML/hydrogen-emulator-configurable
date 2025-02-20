@@ -47,19 +47,19 @@ while wy_hour<=hend:
     print(wy_hour)
 
     #CONUS2.0 File Path
-    fin1 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.press.{wy_hour:05d}.pfb"
+    #fin1 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.press.{wy_hour:05d}.pfb"
 
     #CONUS2.1 File path
-    #fin1= f"/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/raw_outputs/spinup.wy{wy}.out.press.{wy_hour:05d}.pfb"
+    fin1= f"/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/raw_outputs/spinup.wy{wy}.out.press.{wy_hour:05d}.pfb"
     
 
     if diff:
         print("calculating mean for pressure diffs")
         #CONUS2.0 File path
-        fin0 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.press.{(wy_hour-1):05d}.pfb"
+        #fin0 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.press.{(wy_hour-1):05d}.pfb"
 
         #CONUS2.1 file path
-        #fin0 = f"/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/raw_outputs/spinup.wy{wy}.out.press.{(wy_hour-1):05d}.pfb"
+        fin0 = f"/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/raw_outputs/spinup.wy{wy}.out.press.{(wy_hour-1):05d}.pfb"
     
         p1 = read_pfb(fin1)
         p0 = read_pfb(fin0)
@@ -92,17 +92,17 @@ while wy_hour<=hend:
     print(wy_hour)
 
     #CONUS2.0 file path
-    fin1 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.press.{wy_hour:05d}.pfb"
+    #fin1 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.press.{wy_hour:05d}.pfb"
 
     #CONUS2.1 File path
-    #fin1= f"/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/raw_outputs/spinup.wy{wy}.out.press.{wy_hour:05d}.pfb"
+    fin1= f"/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/raw_outputs/spinup.wy{wy}.out.press.{wy_hour:05d}.pfb"
 
     if diff: 
         print("Calculating stdev for pressure differences")
         # CONUS2.0 file path
-        fin0 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.press.{(wy_hour-1):05d}.pfb"
+        #fin0 = f"/hydrodata/temp/CONUS2_transfers/CONUS2/spinup_WY2003/run_inputs/spinup.wy{wy}.out.press.{(wy_hour-1):05d}.pfb"
         # CONUS 2.1 file path
-        #fin0 = f"/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/raw_outputs/spinup.wy{wy}.out.press.{(wy_hour-1):05d}.pfb"
+        fin0 = f"/hydrodata/temp/CONUS2.1/WY2003V2_run_outputs/raw_outputs/spinup.wy{wy}.out.press.{(wy_hour-1):05d}.pfb"
 
 
         p1 = read_pfb(fin1)
@@ -128,22 +128,22 @@ print(pdif_mean)
 
 # Save as CSV and YAML
 if diff:
-    fout = 'CONUS2.0_pressure_difference_scalers_' + str(interval) + 'hour.csv'
-    fout_yml = 'CONUS2.0_pressure_difference_scalers_' + str(interval) + 'hour.yaml'
+    fout = 'CONUS2.1_pressure_difference_scalers_' + str(interval) + 'hour.csv'
+    fout_yml = 'CONUS2.1_pressure_difference_scalers_' + str(interval) + 'hour.yaml'
     print(fout, fout_yml)
 else:
-    fout = 'CONUS2.0_pressure_scalers_' + str(interval) + 'hour.csv'
+    fout = 'CONUS2.1_pressure_scalers_' + str(interval) + 'hour.csv'
     print(fout)
-    fout_yml = 'CONUS2.0_pressure_scalers_' + str(interval) + 'hour.yaml'
+    fout_yml = 'CONUS2.1_pressure_scalers_' + str(interval) + 'hour.yaml'
     print(fout, fout_yml)
 
 #Save as cvs
 row_names = ['layer_'+str(val) for val in range(nz)]
 df=pd.DataFrame({'Name':row_names, 'Mean': pdif_mean, 'stdev': pdif_stdev})
 df.set_index('Name')
-#df.to_csv(fout, index=False)
+df.to_csv(fout, index=False)
 
 # Save as YAML
-#with open(fout_yml, 'w') as file:
-#    yaml.dump(df.to_dict(orient='records'), file, sort_keys=False)
+with open(fout_yml, 'w') as file:
+    yaml.dump(df.to_dict(orient='records'), file, sort_keys=False)
     

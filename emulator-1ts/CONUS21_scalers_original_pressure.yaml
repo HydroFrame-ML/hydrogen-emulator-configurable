@@ -411,45 +411,45 @@ vg_n_9:
   std: 0.4288453859352049
   type: StandardScaler 
 press_diff_0:
-  mean: -2.8628012241080942e-06
-  std: 3.2339409258506475e-05
-  type: StandardScaler 
+  mean: 258.65470195950905
+  std: 74.96040106863151
+  type: StandardScaler
 press_diff_1:
-  mean: -7.363112722386313e-06
-  std: 4.895062380811989e-05
-  type: StandardScaler 
+  mean: 117.24941635082199
+  std: 49.4969313101161
+  type: StandardScaler
 press_diff_2:
-  mean: -9.89689384079266e-06
-  std: 0.00014523574353576493
-  type: StandardScaler 
+  mean: 51.07215859259675
+  std: 30.251201327005614
+  type: StandardScaler
 press_diff_3:
-  mean: -1.2930509776494399e-05
-  std: 0.0009157284939557876
-  type: StandardScaler 
+  mean: 20.631152874942675
+  std: 18.828185312185983
+  type: StandardScaler
 press_diff_4:
-  mean: -2.8912415703948624e-05
-  std: 0.005673226060262221
-  type: StandardScaler 
+  mean: 7.603959687442217
+  std: 12.570764743491056
+  type: StandardScaler
 press_diff_5:
-  mean: -4.923728267176383e-05
-  std: 0.016125804039281967
-  type: StandardScaler 
+  mean: 1.8479874043619806
+  std: 5.299975639208816
+  type: StandardScaler
 press_diff_6:
-  mean: -5.971029267129808e-05
-  std: 0.025255006205464125
-  type: StandardScaler 
+  mean: -0.04389459689064317
+  std: 1.765036240410802
+  type: StandardScaler
 press_diff_7:
-  mean: -5.735345201960421e-05
-  std: 0.028099269393790607
-  type: StandardScaler 
+  mean: -0.5799467737297798
+  std: 1.1880614896971626
+  type: StandardScaler
 press_diff_8:
-  mean: -5.926497061153013e-05
-  std: 0.030116205998286964
-  type: StandardScaler 
+  mean: -0.9275208773978252
+  std: 1.1084848353862224
+  type: StandardScaler
 press_diff_9:
-  mean: -4.026444792345023e-05
-  std: 0.03604686782483403
-  type: StandardScaler 
+  mean: -1.084243791173133
+  std: 1.0844763629507286
+  type: StandardScaler
 evaptrans_0:
   mean: 0.0
   std: 0.0
@@ -471,24 +471,24 @@ evaptrans_4:
   std: 0.0
   type: StandardScaler
 evaptrans_5:
-  mean: 0.0
-  std: 0.0
+  mean: -1.3237287117758334e-07
+  std: 4.0169001127207903e-07
   type: StandardScaler
 evaptrans_6:
-  mean: -2.7364851371561863e-06
-  std: 6.764709387716456e-06
+  mean: -2.691674408554447e-06
+  std: 5.652756948125397e-06
   type: StandardScaler
 evaptrans_7:
-  mean: -1.3944141737037838e-05
-  std: 3.066004856270538e-05
+  mean: -1.439527372577042e-05
+  std: 2.9071521935258475e-05
   type: StandardScaler
 evaptrans_8:
-  mean: -5.3458510268447215e-05
-  std: 0.00011907935069672793
+  mean: -5.6975858989002096e-05
+  std: 0.00012088892291174828
   type: StandardScaler
 evaptrans_9:
-  mean: 0.0005711542724654267
-  std: 0.007027204756061604
+  mean: 0.0005962268563413434
+  std: 0.006653672295868816
   type: StandardScaler
 
 
