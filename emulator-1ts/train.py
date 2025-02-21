@@ -25,6 +25,14 @@ def train_epoch(
         y = y.to(device=device, non_blocking=True)
         y = y.squeeze()
 
+        model.scale_pressure(state)
+        model.scale_evaptrans(evaptrans)
+        model.scale_statics(params)
+        model.scale_pressure(y)
+
+
+        # TODO: Do scaling here
+
         if not len(state): continue
         optimizer.zero_grad()
         if train:

@@ -74,9 +74,13 @@ def train(
     print('----------------------------------------')
     
     metrics_filename = f'{log_location}/{name}_metrics.csv'
+    weights_filename = f'{log_location}/{name}_weights_only.pth'
     model_filename = f'{log_location}/{name}_model.pth'
     metrics.to_csv(metrics_filename)
-    torch.save(model.state_dict(), model_filename)
+    torch.save(model.state_dict(), weights_filename)
+    m = torch.jit.script(model)
+    torch.jit.save(m, model_filename)
+
     print('----------------------------------------')
     print(f'Metrics saved to {metrics_filename}')
     print(f'Model saved to {model_filename}')
