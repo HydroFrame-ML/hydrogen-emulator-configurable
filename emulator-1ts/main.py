@@ -3,9 +3,9 @@ import torch
 
 from dataset import ParFlowDataset
 from model import get_model
-#from train import train_model
+from train import train_model
 from argparse import ArgumentParser
-#from utils import get_optimizer, get_loss
+from utils import get_optimizer, get_loss
 from torch.utils.data import DataLoader
 
 def read_config(config_path):
@@ -44,13 +44,13 @@ def train(
 ):
     # Create the data loader
     dataset = ParFlowDataset(**data_def)
-#    train_dl = DataLoader(
-#        dataset, 
-#        batch_size=batch_size, 
-#        collate_fn=custom_collate, 
-#        shuffle=True, 
-#        num_workers=num_workers
-#    )
+    train_dl = DataLoader(
+        dataset, 
+        batch_size=batch_size, 
+        collate_fn=custom_collate, 
+        shuffle=True, 
+        num_workers=num_workers
+    )
 
 
     # Create the model
@@ -62,25 +62,25 @@ def train(
     model_def['parameter_list'] = dataset.parameter_list
     model_def['param_nlayer'] = dataset.param_nlayer
     model = get_model(model_type, model_def)
-#    model = model.to(device)  
+    model = model.to(device)  
 
 
     # Create the optimizer and loss function
-#    optimizer = get_optimizer(optimizer, model, lr)
-#    loss_fn = get_loss(loss)
+    optimizer = get_optimizer(optimizer, model, lr)
+    loss_fn = get_loss(loss)
 
-#    metrics = train_model(
-#        model, train_dl, optimizer, loss_fn, n_epochs, device=device
-#    )
+    metrics = train_model(
+        model, train_dl, optimizer, loss_fn, n_epochs, device=device
+    )
     print('----------------------------------------')
-#    print(metrics)
+    print(metrics)
     print('----------------------------------------')
     
     metrics_filename = f'{log_location}/{name}_metrics.csv'
     weights_filename = f'{log_location}/{name}_weights_only.pth'
     model_filename = f'{log_location}/{name}_model.pth'
-#    metrics.to_csv(metrics_filename)
-#    torch.save(model.state_dict(), weights_filename)
+    metrics.to_csv(metrics_filename)
+    torch.save(model.state_dict(), weights_filename)
     m = torch.jit.script(model)
     torch.jit.save(m, model_filename)
 

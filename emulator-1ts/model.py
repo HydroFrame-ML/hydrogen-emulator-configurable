@@ -18,7 +18,6 @@ class LayerNorm2D(nn.LayerNorm):
         super().__init__(num_channels, eps=eps, elementwise_affine=affine)
 
     def forward(self, x):
-        print(f">>>>>>>>>>>>>>>>>>>>> f.layer_norm x dtype: {x.dtype}, weight dtype: {self.weight.dtype}, bias dtype: {self.bias.dtype}")
         self.weight = self.weight.to(torch.float64)
         self.bias = self.bias.to(torch.float64)
         return F.layer_norm(
@@ -212,9 +211,7 @@ class ResNet(torch.nn.Module):
     @torch.jit.export
     def get_parflow_statics(self, statics:Dict[str, torch.Tensor]):
         parameter_data = []
-        print("Parameter list: ", self.parameter_list)
         for (parameter, n_lay) in zip(self.parameter_list, self.param_nlayer):
-            print("Inside get_parflow_statics, ", parameter)
             param_temp = statics[parameter]
             if param_temp.shape[0] > 1:
                 #Grab the top n bottom or top layers if specified in the param_nlayer list
@@ -224,23 +221,18 @@ class ResNet(torch.nn.Module):
                 #Grab the top n_lay layers
                 elif n_lay < 0:
                     param_temp = param_temp[n_lay:,:,:]
-            print(param_temp.shape)
             parameter_data.append(param_temp)
 
         # Concatenate the parameter data together
         # End result is a dims of (n_parameters, y, x)
         parameter_data = torch.cat(parameter_data, dim=0)
         parameter_data = parameter_data.unsqueeze(0)
-        print("statics shape: ", parameter_data.shape)
         self.scale_statics(parameter_data)
-        print("statics shape: ", parameter_data.shape)
         return parameter_data
             
     @torch.jit.export
     def scale_statics(self, x):
-        print("param names: ", self.param_names)
         for i, name in enumerate(self.param_names):
-            print("Scale ", i, name)
             mu = self.scalers[name][0]
             sigma = self.scalers[name][1]
             x[:, i, :, :] = (x[:, i, :, :] - mu) / sigma
