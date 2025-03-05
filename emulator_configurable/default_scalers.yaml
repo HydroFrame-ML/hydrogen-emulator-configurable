@@ -1,0 +1,182 @@
+APCP_prev:
+  mean: '1.928537'
+  std: '5.3619676'
+  type: StandardScaler
+APCP:
+  mean: '1.928537'
+  std: '5.3619676'
+  type: StandardScaler
+Temp_max_prev:
+  mean: '289.2848'
+  std: '12.327742'
+  type: StandardScaler
+Temp_max:
+  mean: '289.2848'
+  std: '12.327742'
+  type: StandardScaler
+Temp_min_prev:
+  mean: '279.65515'
+  std: '10.692556'
+  type: StandardScaler
+Temp_min:
+  mean: '279.65515'
+  std: '10.692556'
+  type: StandardScaler
+elevation:
+  max: '1000'
+  min: '0'
+  type: MinMaxScaler
+et_prev:
+  mean: '1.4030688'
+  std: '1.3309312'
+  type: StandardScaler
+et:
+  mean: '1.4030688'
+  std: '1.3309312'
+  type: StandardScaler
+frac_dist:
+  max: '1'
+  min: '0'
+  type: MinMaxScaler
+melt_prev:
+  max: '5.77809143'
+  min: '0'
+  type: MinMaxScaler
+melt:
+  max: '5.77809143'
+  min: '0'
+  type: MinMaxScaler
+permeability_0:
+  mean: '0.03452373'
+  std: '0.028906988'
+  type: StandardScaler
+permeability_1:
+  mean: '0.026397077'
+  std: '0.061588444'
+  type: StandardScaler
+permeability_2:
+  mean: '0.024446584'
+  std: '0.055847544'
+  type: StandardScaler
+permeability_3:
+  mean: '0.024446584'
+  std: '0.055847544'
+  type: StandardScaler
+permeability_4:
+  mean: '0.024446584'
+  std: '0.055847544'
+  type: StandardScaler
+porosity_0:
+  mean: '0.3432595'
+  std: '0.013250694'
+  type: StandardScaler
+porosity_1:
+  mean: '0.43669742'
+  std: '0.044214156'
+  type: StandardScaler
+porosity_2:
+  mean: '0.43013573'
+  std: '0.039393805'
+  type: StandardScaler
+porosity_3:
+  mean: '0.43013573'
+  std: '0.039393805'
+  type: StandardScaler
+porosity_4:
+  mean: '0.43013573'
+  std: '0.039393805'
+  type: StandardScaler
+pressure_prev_0:
+  mean: '46.714836'
+  std: '10.240222930908203'
+  type: StandardScaler
+pressure_prev_1:
+  mean: '0.129667'
+  std: '2.0585286617279053'
+  type: StandardScaler
+pressure_prev_2:
+  mean: '-0.5612521'
+  std: '1.8830064535140991'
+  type: StandardScaler
+pressure_prev_3:
+  mean: '-0.94116545'
+  std: '1.8854902982711792'
+  type: StandardScaler
+pressure_prev_4:
+  mean: '-1.1082141'
+  std: '1.9226884841918945'
+  type: StandardScaler
+pressure_0:
+  mean: '46.714836'
+  std: '10.240222930908203'
+  type: StandardScaler
+pressure_1:
+  mean: '0.129667'
+  std: '2.0585286617279053'
+  type: StandardScaler
+pressure_2:
+  mean: '-0.5612521'
+  std: '1.8830064535140991'
+  type: StandardScaler
+pressure_3:
+  mean: '-0.94116545'
+  std: '1.8854902982711792'
+  type: StandardScaler
+pressure_4:
+  mean: '-1.1082141'
+  std: '1.9226884841918945'
+  type: StandardScaler
+swe_prev:
+  max: '192.0'
+  min: '0.0'
+  type: MinMaxScaler
+swe:
+  max: '192.0'
+  min: '0.0'
+  type: MinMaxScaler
+topographic_index:
+  mean: '6.596512'
+  std: '3.022613'
+  type: StandardScaler
+van_genuchten_alpha_0:
+  mean: '1.0'
+  std: '0.0'
+  type: StandardScaler
+van_genuchten_alpha_1:
+  mean: '1.6282539'
+  std: '0.89457893'
+  type: StandardScaler
+van_genuchten_alpha_2:
+  mean: '1.5100393'
+  std: '0.9796883'
+  type: StandardScaler
+van_genuchten_alpha_3:
+  mean: '1.5100393'
+  std: '0.9796883'
+  type: StandardScaler
+van_genuchten_alpha_4:
+  mean: '1.5100393'
+  std: '0.9796883'
+  type: StandardScaler
+van_genuchten_n_0:
+  mean: '3.1136804'
+  std: '0.113748126'
+  type: StandardScaler
+van_genuchten_n_1:
+  mean: '2.5561707'
+  std: '0.422388'
+  type: StandardScaler
+van_genuchten_n_2:
+  mean: '2.5980806'
+  std: '0.3685187'
+  type: StandardScaler
+van_genuchten_n_3:
+  mean: '2.5980806'
+  std: '0.3685187'
+  type: StandardScaler
+van_genuchten_n_4:
+  mean: '2.5980806'
+  std: '0.3685187'
+  type: StandardScaler
+
+
