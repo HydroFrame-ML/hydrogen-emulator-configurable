@@ -18,8 +18,6 @@ class LayerNorm2D(nn.LayerNorm):
         super().__init__(num_channels, eps=eps, elementwise_affine=affine)
 
     def forward(self, x):
-        self.weight = self.weight.to(torch.float64)
-        self.bias = self.bias.to(torch.float64)
         return F.layer_norm(
             x.permute(0, 2, 3, 1), self.normalized_shape, self.weight, self.bias, self.eps
         ).permute(0, 3, 1, 2)
@@ -46,7 +44,7 @@ class ConvBlock(nn.Module):
             kernel_size=self.kernel_size,
             padding=self.padding,
             padding_mode='reflect'
-        ).double()
+        )
 
     def forward(self, x):
         return self.activation(self.conv(x))
@@ -75,13 +73,13 @@ class ResidualBlock(nn.Module):
             padding=int(self.kernel_size / 2),
             padding_mode='reflect',
             groups=self.in_channels
-        ).double()
+        )
         self.layer_norm = LayerNorm2D(self.hidden_channels)
         self.pointwise_conv = nn.Conv2d(
             self.hidden_channels,
             self.out_channels,
             kernel_size=1
-        ).double()
+        )
 
     def forward(self, x):
         identity = x

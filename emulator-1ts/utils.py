@@ -15,6 +15,14 @@ from pytorch_lightning.callbacks import TQDMProgressBar
 
 dask.config.set(**{'array.slicing.split_large_chunks': True})
 
+def get_dtype(dtype):
+    if dtype == "float32":
+        return torch.float32
+    elif dtype == "float64":
+        return torch.float64
+    else:
+        raise ValueError(f"Data type {dtype} not supported")
+
 def get_optimizer(optimizer_type, model, learning_rate, **kwargs):
     if optimizer_type == "adam":
         optimizer = torch.optim.AdamW(

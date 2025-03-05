@@ -5,7 +5,7 @@ from dataset import ParFlowDataset
 from model import get_model
 from train import train_model
 from argparse import ArgumentParser
-from utils import get_optimizer, get_loss
+from utils import get_optimizer, get_loss, get_dtype
 from torch.utils.data import DataLoader
 
 def read_config(config_path):
@@ -40,10 +40,12 @@ def train(
     model_def: dict,
     device: str,
     num_workers: int,
+    dtype: str,
     **kwargs
 ):
     # Create the data loader
-    dataset = ParFlowDataset(**data_def)
+    dtype = get_dtype(dtype)
+    dataset = ParFlowDataset(**data_def, dtype=dtype)
     train_dl = DataLoader(
         dataset, 
         batch_size=batch_size, 
@@ -62,7 +64,7 @@ def train(
     model_def['parameter_list'] = dataset.parameter_list
     model_def['param_nlayer'] = dataset.param_nlayer
     model = get_model(model_type, model_def)
-    model = model.to(device)  
+    model = model.to(device).to(dtype)
 
 
     # Create the optimizer and loss function

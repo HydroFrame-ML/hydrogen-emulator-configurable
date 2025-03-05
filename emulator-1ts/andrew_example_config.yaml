@@ -3,10 +3,11 @@ log_location: /home/ab6361/hydrogen_workspace/hydrogen-emulator-1ts
 model_type: resnet # fixed for now
 optimizer: adam # fixed for now
 loss: mse # fixed for now
-n_epochs: 5 # small for testing
+n_epochs: 20 # small for testing
 batch_size: 4 # small for testing
 lr: 0.001
 num_workers: 1
+dtype: float32
 device: cuda:0
 data_def:
   data_dir: /home/ab6361/hydrogen_workspace/hydrogen-emulator-1ts/

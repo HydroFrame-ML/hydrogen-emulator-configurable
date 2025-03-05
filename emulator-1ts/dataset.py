@@ -18,8 +18,7 @@ class ParFlowDataset(Dataset):
     def __init__(
         self, data_dir, run_name,
         parameter_list, patch_size, overlap, 
-        param_nlayer, n_evaptrans=0
-        
+        param_nlayer, n_evaptrans=0, dtype=torch.float64
     ):
         super().__init__() 
         self.base_dir = f'{data_dir}/{run_name}'
@@ -28,6 +27,7 @@ class ParFlowDataset(Dataset):
         self.patch_size = patch_size
         self.n_evaptrans = n_evaptrans
         self.overlap = overlap
+        self.dtype = dtype
 
         self.pressure_files = sorted(glob(f'{self.base_dir}/transient/pressure*.pfb')) 
         self.pressure_files = {
@@ -155,8 +155,8 @@ class ParFlowDataset(Dataset):
             evaptrans = evaptrans[self.n_evaptrans:,:,:]
         
         # Convert everything to torch tensors
-        state_data = torch.from_numpy(state_data).float()
-        evaptrans = torch.from_numpy(evaptrans).float()
-        parameter_data = torch.from_numpy(parameter_data).float()
-        target_data = torch.from_numpy(target_data).float()
+        state_data = torch.from_numpy(state_data).to(self.dtype)
+        evaptrans = torch.from_numpy(evaptrans).to(self.dtype)
+        parameter_data = torch.from_numpy(parameter_data).to(self.dtype)
+        target_data = torch.from_numpy(target_data).to(self.dtype)
         return state_data, evaptrans, parameter_data, target_data
