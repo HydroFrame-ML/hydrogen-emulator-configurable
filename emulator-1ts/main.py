@@ -58,6 +58,9 @@ def train(
     model_def['pressure_names'] = dataset.PRESSURE_NAMES
     model_def['evaptrans_names'] = dataset.EVAPTRANS_NAMES
     model_def['param_names'] = dataset.PARAM_NAMES
+    model_def['n_evaptrans'] = dataset.n_evaptrans
+    model_def['parameter_list'] = dataset.parameter_list
+    model_def['param_nlayer'] = dataset.param_nlayer
     model = get_model(model_type, model_def)
     model = model.to(device)  
 
