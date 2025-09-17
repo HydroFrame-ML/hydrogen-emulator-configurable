@@ -11,7 +11,7 @@ uv sync
 uv pip install "git+https://github.com/arbennett/xbatcher/@cmip_swe"
 
 # Checkout whatever branch you want to use
-git checkout feature/new_data_and_model_flow
+git checkout develop
 uv pip install -e .
 ```
 
