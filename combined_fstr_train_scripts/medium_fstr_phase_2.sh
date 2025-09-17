@@ -4,9 +4,7 @@ CONFIG=$(cat <<- EOM
 {
     "resume_from_checkpoint": true,
     "train_dataset_files": [
-        "/home/andrbenn/data/hydrogen/pfclm_2003_bitrounded.zarr",
-        "/home/andrbenn/data/hydrogen/pfclm_2004_bitrounded.zarr",
-        "/home/andrbenn/data/hydrogen/pfclm_2005_bitrounded.zarr"
+        "/home/andrbenn/data/hydrogen/pfclm_rechunked.zarr"
     ],
     "logging_location": "file:/home/andrbenn/data/hydrogen/full_model_runs/",
     "run_name": "fstr_$VARIANT",
@@ -50,17 +48,23 @@ CONFIG=$(cat <<- EOM
     ],
     "learning_rate": 0.001,
     "gradient_loss_penalty": true,
-    "sequence_length": 8,
-    "patch_size": 64,
+    "sequence_length": 12,
+    "patch_size": 128,
     "batch_size": 16,
-    "num_workers": 16,
-    "max_epochs": 10,
+    "num_workers": 96,
+    "max_epochs": 2,
     "logging_frequency": 1,
     "precision": "bf16-mixed",
+    "selectors": {
+        "time": {
+            "start": 0,
+            "stop": 1095
+        }
+    },
     "model_type": "ParflowClmEmulator",
     "model_config": {
-        "num_layers": 1,
-        "num_hidden": [32],
+        "num_layers": 2,
+        "num_hidden": [32, 32],
         "img_channel": 7,
         "out_channel": 7,
         "act_channel": 3,
@@ -72,6 +76,6 @@ CONFIG=$(cat <<- EOM
 EOM
 )
 echo $CONFIG > config_medium_fstr_phase_2.json
-parflow_emulator --mode train --domain subsurface --config config_medium_fstr_phase_2.json
+parflow_emulator --mode train --config config_medium_fstr_phase_2.json
 
 

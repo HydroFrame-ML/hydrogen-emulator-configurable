@@ -74,4 +74,4 @@ CONFIG=$(cat <<- EOM
 EOM
 )
 echo $CONFIG > config_train_fstr.json
-python runner.py --mode train --domain subsurface --config config_train_fstr.json
+parflow_emulator --mode train --config config_train_fstr.json

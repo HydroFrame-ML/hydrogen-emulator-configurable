@@ -50,9 +50,9 @@ CONFIG=$(cat <<- EOM
     "gradient_loss_penalty": true,
     "sequence_length": 3,
     "patch_size": 256,
-    "batch_size": 8,
-    "num_workers": 64,
-    "max_epochs": 1,
+    "batch_size": 16,
+    "num_workers": 32,
+    "max_epochs": 2,
     "logging_frequency": 1,
     "precision": "bf16-mixed",
     "selectors": {
@@ -76,4 +76,4 @@ CONFIG=$(cat <<- EOM
 EOM
 )
 echo $CONFIG > config_medium_fstr_phase_1.json
-parflow_emulator --mode train --domain subsurface --config config_medium_fstr_phase_1.json
+parflow_emulator --mode train --config config_medium_fstr_phase_1.json

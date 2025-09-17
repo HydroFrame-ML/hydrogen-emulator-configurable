@@ -16,9 +16,6 @@ from torch.utils.data import DataLoader, Dataset
 from typing import Optional, List, Iterator
 from dask.distributed import as_completed
 
-
-
-
 def open_files(files, selectors, var_list=None, load=False):
     ds = xr.open_mfdataset(files, engine='zarr', compat='override', coords='minimal', chunks='auto')
     ds = ds.assign_coords({
@@ -41,12 +38,9 @@ def open_files(files, selectors, var_list=None, load=False):
     for k, v in stack_vars.items():
         ds[k] = xr.concat([ds[i] for i in v], dim='z')
 
-    ds['water_table_depth_prev'] = ds['water_table_depth'].shift(time=-1).ffill('time')
-    ds['streamflow_prev'] = ds['streamflow'].shift(time=-1).ffill('time')
-
-
     if var_list:
         ds = ds[var_list]
+
     if load:
         ds = ds.load()
     return ds
@@ -72,6 +66,35 @@ class HydrogenDataset(Dataset):
         dtype=torch.float32,
         scaler_file=None,     
     ):
+        """
+        Pytorch dataset for loading and processing ParFlow CLM data.
+
+        Args:
+            files_or_ds (list or xarray.Dataset): List of file paths or an xarray
+                Dataset containing the data.
+            nt (int): Number of time steps to select for each sample.
+            ny (int): Number of grid points in the y direction for each patch.
+            nx (int): Number of grid points in the x direction for each patch.
+            forcings (list): List of variable names to use as forcings.
+            parameters (list): List of variable names to use as static parameters.
+            states (list): List of variable names to use as initial conditions.
+            targets (list): List of variable names to use as targets.
+            input_overlap (dict, optional): Overlap sizes for each dimension.
+                Defaults to None, which sets 75% time overlap and 66% spatial
+                overlap.
+            return_partial (bool, optional): Whether to return partial patches
+                at the edges of the domain. Defaults to False.
+            augment (bool, optional): Whether to apply data augmentation (random
+                flips). Defaults to False.
+            shuffle (bool, optional): Whether to shuffle the data. Defaults to True.
+            selectors (dict, optional): Dictionary of slices to select subsets of
+                the data. Defaults to {} (selects all data).
+            dtype (torch.dtype, optional): Data type for the tensors. Defaults to
+                torch.float32.
+            scaler_file (str, optional): Path to a file containing scalers for
+                each variable. If None, default scalers will be used. Defaults to
+                None.
+        """
         super().__init__()
 
         self.files = files_or_ds if not isinstance(files_or_ds, xr.Dataset) else None
@@ -247,7 +270,12 @@ class HydrogenDataset(Dataset):
         
         return forcing, state, params, target, additional_data
 
+
 class BatchedDatasetIterator:
+    """
+    Iterator for the BatchedDataset class. Used to manage the state of
+    the dataset during iteration.
+    """
     def __init__(self, dataset: 'BatchedDataset'):
         self.dataset = dataset
         self.current = 0
@@ -265,7 +293,12 @@ class BatchedDatasetIterator:
         self.current += 1
         return item
 
+
 class BatchedDataset(Dataset):
+    """
+    A dataset wrapper that provides batched access to another dataset,
+    with prefetching and parallel data loading using Dask.
+    """
     def __init__(
         self, 
         dataset: Dataset, 

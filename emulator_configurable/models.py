@@ -264,7 +264,6 @@ class ParflowClmEmulator(pl.LightningModule):
         self.wtd_fun = torch.vmap(WaterTableDepthHead(self.dz))
         self.flow_fun = OverlandFlowHead()
 
-
     def forward(
         self, 
         forcings, 
@@ -330,14 +329,12 @@ class ParflowClmEmulator(pl.LightningModule):
         self.log_channel_losses(y_hat, target)
         return loss
 
-
     def validation_step(self, val_batch, val_batch_idx):
         forcing, state, params, target, extras = val_batch
         y_hat = self(forcing, state, params, **extras).squeeze()
         loss = self.loss_fun(y_hat, target)
         self.log('val_loss', loss)
         return loss
-
 
     def configure_optimizers(
         self,

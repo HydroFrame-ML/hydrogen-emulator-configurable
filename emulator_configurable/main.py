@@ -16,6 +16,7 @@ from .utils import (
     save_predictions
 )
 
+# Set to suppress a warning, doesn't seem to have a performance impact
 torch.set_float32_matmul_precision('medium')# | 'high')
 
 
@@ -23,8 +24,6 @@ def parse(args):
     parser = argparse.ArgumentParser()
     parser.add_argument('-m', '--mode', type=str,
         help='Mode to run (either train or predict)')
-    parser.add_argument('-d', '--domain', type=str,
-        help='Domain to run (one of surface, subsurface, or combined)')
     parser.add_argument('-c', '--config', type=str,
         help='Path to a configuration file')
     return parser.parse_args(args)
