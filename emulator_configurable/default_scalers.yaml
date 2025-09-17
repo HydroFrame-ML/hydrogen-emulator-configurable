@@ -129,11 +129,11 @@ pressure_4:
   std: '1.9226884841918945'
   type: StandardScaler
 swe_prev:
-  max: '192.0'
+  max: '100.0'
   min: '0.0'
   type: MinMaxScaler
 swe:
-  max: '192.0'
+  max: '100.0'
   min: '0.0'
   type: MinMaxScaler
 topographic_index:
@@ -181,11 +181,11 @@ van_genuchten_n_4:
   std: '0.3685187'
   type: StandardScaler
 water_table_depth:
-  max: '50.0'
+  max: '10.0'
   min: '0.0'
   type: MinMaxScaler
 water_table_depth_prev:
-  max: '50.0'
+  max: '10.0'
   min: '0.0'
   type: MinMaxScaler
 saturation:
@@ -193,11 +193,11 @@ saturation:
   min: '0.0'
   type: MinMaxScaler
 streamflow:
-  std: '169.80'
+  std: '30.00'
   mean : '0.0'
   type: StandardScaler
 streamflow_prev:
-  std: '169.80'
+  std: '30.0'
   mean: '0.0'
   type: StandardScaler
 

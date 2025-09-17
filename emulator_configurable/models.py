@@ -301,7 +301,7 @@ class ParflowClmEmulator(pl.LightningModule):
         wtd = torch.stack([
             self.wtd_fun(pressure_pred[:, t], sat[:, t], depth_ax=0)
             for t in range(pressure_pred.shape[1])
-        ], dim=1)
+        ], dim=1).unsqueeze(dim=2)
         wtd = self.scale_dict['water_table_depth'].transform(wtd)
         flow = torch.stack([self.flow_fun(
             pressure_pred[:, t],
@@ -310,10 +310,7 @@ class ParflowClmEmulator(pl.LightningModule):
             mannings[:, t],
             dx, dy, flow_method='OverlandFlow',
         ) for t in range(pressure_pred.shape[1])], dim=1)
-        flow = self.scale_dict['streamflow'].transform(flow)
-
-        flow = flow.unsqueeze(2)
-        wtd = wtd.unsqueeze(2)
+        flow = self.scale_dict['streamflow'].transform(flow).unsqueeze(dim=2)
 
         # Put the full thing back together again
         full_pred = torch.cat([fstr_pred, wtd, flow], dim=2)
@@ -322,7 +319,7 @@ class ParflowClmEmulator(pl.LightningModule):
     def log_channel_losses(self, y_hat, y):
         with torch.no_grad():
             for i in range(y.shape[2]):
-                loss = self.loss_fun(y_hat[:, :, i, ...], y[:, :, i, ...])
+                loss = F.mse_loss(y_hat[:, :, i, ...], y[:, :, i, ...])
                 self.log(f'loss_{i}', loss)
 
     def training_step(self, train_batch, train_batch_idx):

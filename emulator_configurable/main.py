@@ -16,45 +16,7 @@ from .utils import (
     save_predictions
 )
 
-def predict_surface(
-    config: dict,
-):
-    raise NotImplementedError()
-
-
-def predict_subsurface(
-    config: dict,
-):
-    """
-    Run subsurface prediction using the provided configuration.
-
-    Args:
-        config (dict): A dictionary containing the configuration parameters for subsurface prediction.
-
-    Returns:
-        pred_ds (xarray.Dataset): The predicted subsurface dataset.
-    """
-    # Get the model weights
-    checkpoint_location = config.get('logging_location', 'https://concord.princeton.edu/mlflow/')
-    model_weights_file = try_get_checkpoint(
-        config['run_name'],
-        checkpoint_location, 
-        checkpoint_dir=config.get('checkpoint_dir', '.')
-    )
-    config['model_weights'] = torch.load(model_weights_file)['state_dict']
-
-    # Open the data, do some preprocessing
-    selectors = config.get('selectors', {})
-    ds = xr.open_mfdataset(config['inference_dataset_files'], engine='zarr').bfill('time')
-    ds = maybe_split_3d_vars(ds).isel(**selectors)
-
-    # Run inference
-    pred_ds = emulator.inference.run_subsurface_inference(ds, **config)
-
-    # Save the results
-    if 'save_path' in config:
-        save_predictions(pred_ds, config['save_path'])
-    return pred_ds
+torch.set_float32_matmul_precision('medium')# | 'high')
 
 
 def parse(args):
@@ -71,13 +33,9 @@ def parse(args):
 def main():
     args = parse(sys.argv[1:])
     mode = args.mode
-    domain = args.domain
-
 
     assert mode in ['train', 'predict'], (
             'Mode must be either train or predict!')
-    assert domain in ['surface', 'subsurface'], (
-            'Domain must be "surface", "subsurface", or "combined"!')
     with open(args.config, 'r') as f:
         config = json.loads(f.read())
         config['config_file'] = args.config
@@ -86,15 +44,10 @@ def main():
                 k: slice(v.get('start', 0), v.get('stop', None), v.get('step', None)) 
                 for k, v in config['selectors'].items()
             }
-            print(config['selectors'])
-    if mode == 'train' and domain == 'surface':
+    if mode == 'train':
         emulator.train.train_model(**config)
-    elif mode == 'train' and domain == 'subsurface':
-        emulator.train.train_model(**config)
-    elif mode == 'predict' and domain == 'surface':
-        predict_surface(**config)
-    elif mode == 'predict' and domain == 'subsurface':
-        predict_subsurface(config)
+    elif mode == 'predict':
+        raise NotImplementedError()
 
 if __name__ == '__main__':
     import warnings

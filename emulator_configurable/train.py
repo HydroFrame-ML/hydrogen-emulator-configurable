@@ -20,6 +20,7 @@ from .utils import (
 )
 
 dask.config.set(scheduler='synchronous')
+dask.config.set({'logging.distributed': 'error'})
 
 def train_model(
     run_name: str,
@@ -41,6 +42,9 @@ def train_model(
     precision: str='16',
     resume_from_checkpoint: Union[bool, str]=False,
     gradient_loss_penalty: bool=True,
+    masked_streamflow_loss: bool=False,
+    streamflow_mask_threshold: float=0.1,
+    streamflow_mask_weight: float=10.0,
     logging_frequency: int=10,
     callbacks: List[Callback]=[],
     device: Union[torch.device, str]='cuda',
@@ -50,7 +54,7 @@ def train_model(
 ):
     # Set up the cluster
     cluster = LocalCluster(
-        n_workers=num_workers, threads_per_worker=1, memory_limit='4GB',
+        n_workers=num_workers, threads_per_worker=1, memory_limit='16GB',
         dashboard_address=':4321',
     )
     client = Client(cluster)
@@ -65,7 +69,10 @@ def train_model(
         every_n_epochs=None,
         monitor='train_loss'
     )
-    callbacks = [lr_monitor, metrics, checkpoint]
+    epoch_checkpoint = ModelCheckpoint(
+        every_n_epochs=1,
+    )
+    callbacks = [lr_monitor, metrics, checkpoint, epoch_checkpoint]
 
     # Get the checkpoint if we're resuming a training run
     if resume_from_checkpoint and isinstance(resume_from_checkpoint, bool):
@@ -98,6 +105,9 @@ def train_model(
         model_config=model_config,
         learning_rate=learning_rate,
         gradient_loss_penalty=gradient_loss_penalty,
+        masked_streamflow_loss=masked_streamflow_loss,
+        streamflow_mask_threshold=streamflow_mask_threshold,
+        streamflow_mask_weight=streamflow_mask_weight,
     ).to(device)
 
     # Create the data loading pipeline
@@ -113,7 +123,7 @@ def train_model(
     # Configure the trainer. 
     trainer = pl.Trainer(
         accelerator=device,
-        devices=[0],
+        devices=[1],
         callbacks=callbacks,
         precision=precision,
         max_epochs=max_epochs,

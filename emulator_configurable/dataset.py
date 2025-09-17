@@ -20,7 +20,7 @@ from dask.distributed import as_completed
 
 
 def open_files(files, selectors, var_list=None, load=False):
-    ds = xr.open_mfdataset(files, engine='zarr', compat='override', coords='minimal').chunk('auto')
+    ds = xr.open_mfdataset(files, engine='zarr', compat='override', coords='minimal', chunks='auto')
     ds = ds.assign_coords({
         'x': np.arange(len(ds['x'])),
         'y': np.arange(len(ds['y']))
@@ -104,12 +104,12 @@ class HydrogenDataset(Dataset):
         input_dims = {'time': nt, 'y': ny, 'x': nx}
         
         if isinstance(files_or_ds, xr.Dataset):
-            ds = files_or_ds.isel(**selectors)
+            self.ds = files_or_ds.isel(**selectors)
         else:
-            ds = open_files(files_or_ds, selectors)
+            self.ds = open_files(files_or_ds, selectors)
 
         bgen = xb.BatchGenerator(
-            ds, 
+            self.ds, 
             input_dims=input_dims, 
             input_overlap=input_overlap, 
             return_partial=return_partial, 
@@ -151,20 +151,31 @@ class HydrogenDataset(Dataset):
         lf = layer_forcings
         lt = layer_targets
         dims = ('time', 'variable', 'y', 'x')
-        forcing = batch[lf].to_array().transpose(*dims).compute(scheduler='synchronous')
-        try:
-            params = batch[lp].isel(time=[0]).to_array().transpose(*dims).compute(scheduler='synchronous')
-        except:
-            params = batch[lp].expand_dims({'time': 1}).isel(time=[0]).to_array()
-            params = params.transpose(*dims).compute(scheduler='synchronous')
-        state = batch[ls].isel(time=[0]).to_array().transpose(*dims).compute(scheduler='synchronous')
-        target = batch[lt].to_array().transpose(*dims).compute(scheduler='synchronous')
         
-
-        forcing = torch.tensor(forcing.values).to(self.dtype)
-        params = torch.tensor(params.values).to(self.dtype)
-        state = torch.tensor(state.values).to(self.dtype)
-        target = torch.tensor(target.values).to(self.dtype)
+        # Prepare all lazy operations (no computation yet)
+        forcing_lazy = batch[lf].to_array().transpose(*dims)
+        state_lazy = batch[ls].isel(time=[0]).to_array().transpose(*dims)
+        target_lazy = batch[lt].to_array().transpose(*dims)
+        
+        # Handle params with special case (but still keep it lazy)
+        try:
+            params_lazy = batch[lp].isel(time=[0]).to_array().transpose(*dims)
+        except:
+            params_lazy = batch[lp].expand_dims({'time': 1}).isel(time=[0]).to_array().transpose(*dims)
+        
+        # Single batched compute operation for all variables
+        # This is the key optimization - compute everything at once
+        forcing_computed, params_computed, state_computed, target_computed = dask.compute(
+            forcing_lazy, params_lazy, state_lazy, target_lazy,
+            scheduler='threads'  # Use threads instead of synchronous for better performance
+        )
+        
+        # Convert to PyTorch tensors
+        forcing = torch.tensor(forcing_computed.values).to(self.dtype)
+        params = torch.tensor(params_computed.values).to(self.dtype)
+        state = torch.tensor(state_computed.values).to(self.dtype)
+        target = torch.tensor(target_computed.values).to(self.dtype)
+        
         return forcing, state, params, target
 
 
@@ -185,31 +196,47 @@ class HydrogenDataset(Dataset):
 
 
     def __getitem__(self, idx):
+        start_time = time.time()
 
         # Setup for multiprocessing
         if not hasattr(self, '_worker_ds'):
+            init_start = time.time()
             self.init_worker()
+        
+        batch_gen_start = time.time()
         batch = self.bgen[idx]
 
+        prep_start = time.time()
         if 'mannings' not in batch:
             batch['mannings'] = xr.zeros_like(batch['elevation']) + 2.0
         if self.augment:
             batch = self.augment_batch(batch)
 
-        transpose_dims = ('time', 'z', 'y', 'x')
-        def _to_tensor(x, transpose_dims=transpose_dims):
-            return torch.tensor(x.transpose(*transpose_dims).compute(scheduler='synchronous').values)
-
+        # Batch compute additional data as well
+        # Prepare lazy operations for additional data
+        additional_start = time.time()
+        additional_lazy = {
+            'vgn_a': batch['van_genuchten_alpha'].transpose('time', 'z', 'y', 'x'),
+            'vgn_n': batch['van_genuchten_n'].transpose('time', 'z', 'y', 'x'),
+            'slope_x': batch['slope_x'].transpose('time', 'y', 'x'),
+            'slope_y': batch['slope_y'].transpose('time', 'y', 'x'),
+            'mannings': batch['mannings'].transpose('time', 'y', 'x'),
+        }
+        
+        # Compute all additional data at once
+        additional_computed = dask.compute(additional_lazy, scheduler='threads')[0]
+        
+        # Convert to tensors
         additional_data = {
-            'vgn_a': _to_tensor(batch['van_genuchten_alpha']),
-            'vgn_n': _to_tensor(batch['van_genuchten_n']),
-            'slope_x': _to_tensor(batch['slope_x'], transpose_dims=('time', 'y', 'x')),
-            'slope_y': _to_tensor(batch['slope_y'], transpose_dims=('time', 'y', 'x')),
-            'mannings': _to_tensor(batch['mannings'], transpose_dims=('time', 'y', 'x')),
+            key: torch.tensor(arr.values, dtype=self.dtype) 
+            for key, arr in additional_computed.items()
         }
 
+        transform_start = time.time()
         batch = batch[self.vars_of_interest]
         batch = self.transform(batch)
+        
+        split_start = time.time()
         forcing, state, params, target = self.split_and_convert(
             batch,
             self.parameters,
@@ -217,26 +244,8 @@ class HydrogenDataset(Dataset):
             self.forcings,
             self.targets,
         )
-        return forcing, state, params, target, additional_data
-
-class BatchedDatasetIterator:
-    def __init__(self, dataset: 'BatchedDataset'):
-        self.dataset = dataset
-        self.current = 0
-        self.dataset.start()
-    
-    def __iter__(self):
-        return self
-    
-    def __next__(self):
-        if self.current >= len(self.dataset):
-            self.dataset.stop()
-            raise StopIteration
         
-        item = self.dataset[self.current]
-        self.current += 1
-        return item
-
+        return forcing, state, params, target, additional_data
 
 class BatchedDatasetIterator:
     def __init__(self, dataset: 'BatchedDataset'):
@@ -366,6 +375,8 @@ class BatchedDataset(Dataset):
             return False
 
     def _prefetch_worker(self):
+        #dask.config.set(scheduler='synchronous')
+        dask.config.set({'logging.distributed': 'error'})
         while not self.stop_event.is_set():
             try:
                 # Submit new futures if needed
@@ -414,7 +425,6 @@ class BatchedDataset(Dataset):
                             
             except Exception as e:
                 print(f"Error in prefetch worker: {e}")
-                raise e
                 time.sleep(0.1)
 
     def __getitem__(self, idx):

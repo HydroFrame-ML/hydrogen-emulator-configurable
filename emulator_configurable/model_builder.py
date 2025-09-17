@@ -1,5 +1,6 @@
 import torch
 import os
+from functools import partial
 
 from torch.nn import functional as F
 from emulator_configurable import utils
@@ -72,6 +73,9 @@ def model_setup(
     model_config,
     learning_rate=None,
     gradient_loss_penalty=True,
+    masked_streamflow_loss=False,
+    streamflow_mask_threshold=0.1,
+    streamflow_mask_weight=10.0,
     model_weights=None,
     precision=torch.float32,
     device='cuda',
@@ -84,6 +88,9 @@ def model_setup(
         model_config (dict): The configuration parameters for building the model.
         learning_rate (float, optional): The learning rate for the optimizer. Defaults to None.
         gradient_loss_penalty (bool, optional): Whether to use the spatial gradient penalty loss. Defaults to True.
+        masked_streamflow_loss (bool, optional): Whether to use masked streamflow loss. Defaults to False.
+        streamflow_mask_threshold (float, optional): Threshold for streamflow mask creation. Defaults to 0.1.
+        streamflow_mask_weight (float, optional): Weight multiplier for masked streamflow regions. Defaults to 10.0.
         model_weights (dict, optional): The weights of the model saved during training. Defaults to None.
         precision (torch.dtype, optional): The precision of the model. Defaults to torch.float32.
         device (str, optional): The device to use for training or inference. Defaults to 'cuda'.
@@ -103,14 +110,23 @@ def model_setup(
     if precision:
         model.to(precision)
 
-    # Configure the loss function. If gradient_loss_penalty is True, use the
-    # spatial gradient penalty loss, otherwise use the default mse_loss.
-    # The spatial gradient penalty loss adds an additional term to the 
-    # loss which accounts for the spatial gradient of the output, calculated
-    # via a simple finite difference.
-    if gradient_loss_penalty:
+    # Configure the loss function based on the specified options
+    if masked_streamflow_loss:
+        # Use masked streamflow loss with configurable parameters
+        # This applies higher weights to river/stream locations in streamflow prediction
+        loss_fun = partial(
+            utils.masked_streamflow_loss,
+            streamflow_channel_idx=-1,  # Streamflow is the last channel
+            mask_threshold=streamflow_mask_threshold,
+            mask_weight=streamflow_mask_weight,
+            space_weight=1 if gradient_loss_penalty else 0
+        )
+        model.configure_loss(loss_fun=loss_fun)
+    elif gradient_loss_penalty:
+        # Use spatial gradient penalty loss 
         model.configure_loss(loss_fun=utils.spatial_gradient_penalty_loss)
     else:
+        # Use basic MSE loss
         model.configure_loss(loss_fun=F.mse_loss)
     if learning_rate:
         model.learning_rate = learning_rate

@@ -113,6 +113,62 @@ def spatial_gradient_penalty_loss(yhat, ytru, space_weight=1, loss_fun=F.mse_los
     return loss + space_weight * (dx_loss + dy_loss)
 
 
+def masked_streamflow_loss(yhat, ytru, streamflow_channel_idx=8, mask_threshold=0.1, 
+                          mask_weight=10.0, space_weight=1, loss_fun=F.mse_loss):
+    """
+    Calculates a masked loss that emphasizes streamflow prediction in river/stream locations.
+    
+    Args:
+        yhat (torch.Tensor): The predicted values with shape (batch, time, channel, y, x).
+        ytru (torch.Tensor): The true values with shape (batch, time, channel, y, x).
+        streamflow_channel_idx (int): Index of the streamflow channel. Defaults to 8.
+        mask_threshold (float): Threshold for creating streamflow mask. Defaults to 0.1.
+        mask_weight (float): Weight multiplier for masked regions. Defaults to 10.0.
+        space_weight (float): Weight for spatial gradient penalty. Defaults to 1.
+        loss_fun (function): Base loss function. Defaults to F.mse_loss.
+        
+    Returns:
+        torch.Tensor: The calculated masked loss.
+    """
+    # Standard loss for all channels
+    base_loss = loss_fun(ytru, yhat)
+    
+    # Extract streamflow channels
+    streamflow_pred = yhat[:, :, streamflow_channel_idx, :, :]
+    streamflow_true = ytru[:, :, streamflow_channel_idx, :, :]
+    
+    # Create dynamic mask where streamflow > threshold
+    # Use true values to identify river/stream locations
+    mask = (torch.abs(streamflow_true) > mask_threshold).float()
+    
+    # Calculate weighted streamflow loss
+    # Apply higher weight to masked (river) regions
+    streamflow_loss_masked = loss_fun(streamflow_pred * mask, streamflow_true * mask)
+    streamflow_loss_unmasked = loss_fun(streamflow_pred * (1 - mask), streamflow_true * (1 - mask))
+    
+    # Weighted combination of masked and unmasked streamflow loss
+    weighted_streamflow_loss = (mask_weight * streamflow_loss_masked + streamflow_loss_unmasked)
+    
+    # Replace standard streamflow loss with weighted version
+    # This modifies the base_loss to emphasize streamflow in river areas
+    standard_streamflow_loss = loss_fun(streamflow_pred, streamflow_true)
+    adjusted_loss = base_loss - standard_streamflow_loss + weighted_streamflow_loss
+    
+    # Add spatial gradient penalty if requested
+    if space_weight > 0:
+        dx_tru = torch.diff(ytru, dim=-1)
+        dx_hat = torch.diff(yhat, dim=-1)
+        dx_loss = loss_fun(dx_tru, dx_hat)
+        
+        dy_tru = torch.diff(ytru, dim=-2)
+        dy_hat = torch.diff(yhat, dim=-2)
+        dy_loss = loss_fun(dy_tru, dy_hat)
+        
+        adjusted_loss = adjusted_loss + space_weight * (dx_loss + dy_loss)
+    
+    return adjusted_loss
+
+
 def count_parameters(model):
     """
     Returns the number of parameters in a pytorch model
