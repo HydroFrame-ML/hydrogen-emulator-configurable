@@ -1,26 +1,16 @@
-#!/bin/bash
-#
-#SBATCH --job-name=unet_train_1
-#SBATCH --output=log_unet_train_1.txt
-#
-#SBATCH --cpus-per-task=12
-#SBATCH --gres=gpu:1
-#SBATCH --time=36:00:00
-#SBATCH --mem=200GB
-
 TODAY=`date +"%Y-%m-%d"`
-VARIANT="bc8_revisions"
+VARIANT="2l_32hd_revisions"
 CONFIG=$(cat <<- EOM
 {
     "resume_from_checkpoint": false,
     "train_dataset_files": [
-        "/scratch/network/ab6361/pfclm_2003_bitrounded.zarr",
-        "/scratch/network/ab6361/pfclm_2004_bitrounded.zarr",
-        "/scratch/network/ab6361/pfclm_2005_bitrounded.zarr"
+        "/home/andrbenn/data/hydrogen/pfclm_2003_bitrounded.zarr",
+        "/home/andrbenn/data/hydrogen/pfclm_2004_bitrounded.zarr",
+        "/home/andrbenn/data/hydrogen/pfclm_2005_bitrounded.zarr"
     ],
-    "scaler_file": "/home/ab6361/hydrogen_workspace/data/new_scalers_may8.scalers",
-    "log_dir": "/home/ab6361/hydrogen_workspace/artifacts/revisions_logs",
-    "run_name": "unet_$VARIANT",
+    "scaler_file": "/home/andrbenn/data/hydrogen/new_scalers_may8.scalers",
+    "log_dir": "/home/andrbenn/data/hydrogen/artifacts/training_logs",
+    "run_name": "fstr_$VARIANT",
     "forcings": ["APCP", "Temp_max", "Temp_min", "melt", "et"],
     "parameters": [
         "topographic_index",
@@ -57,25 +47,25 @@ CONFIG=$(cat <<- EOM
     "gradient_loss_penalty": true,
     "sequence_length": 3,
     "patch_size": 256,
-    "batch_size": 8,
-    "num_workers": 8,
-    "max_epochs": 6,
-    "precision": 32,
-    "logging_frequency": 10,
+    "batch_size": 16,
+    "num_workers": 16,
+    "max_epochs": 30,
+    "logging_frequency": 1,
+    "precision": "bf16",
     "model_def": {
-        "type": "MultiStepModel",
+        "type": "ForcedSTRNN",
         "config": {
-            "layer_model": "UNet",
-            "in_channel":25,
-            "out_channel": 5
-        },
-        "layer_model_kwargs": {
-            "base_channels": 8
+            "num_layers": 2,
+            "num_hidden": [32, 32],
+            "img_channel": 5,
+            "out_channel": 5,
+            "act_channel": 5,
+            "init_cond_channel": 5,
+            "static_channel": 15
         }
     }
 }
 EOM
 )
-echo $CONFIG > config_unet_phase_1.json
-parflow_emulator --mode train --domain subsurface --config config_unet_phase_1.json
-
+echo $CONFIG > config_medium_fstr_phase_1.json
+run_emulator --mode train --config config_medium_fstr_phase_1.json

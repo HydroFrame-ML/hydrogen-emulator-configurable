@@ -4,3 +4,4 @@ train_scripts/*.ckpt
 .ipynb_checkpoints
 *egg-info
 *__pycache__
+uv.lock
